@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>相机照片极速筛选工具 v2.2</title>
+    <link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+    <!-- 顶部路径配置栏 -->
+    <div class="path-bar">
+        <button id="btn-select-jpg">1.导入JPG目录</button>
+        <span id="lbl-jpg-path" class="path-label">[未选择]</span>
+        
+        <button id="btn-select-raw">2.导入RAW目录</button>
+        <span id="lbl-raw-path" class="path-label">[未选择]</span>
+        
+        <button id="btn-select-dest">3.确定导出目录</button>
+        <span id="lbl-dest-path" class="path-label">[未选择]</span>
+        
+        <label>RAW格式:</label>
+        <select id="select-raw-ext">
+            <option>.CR3 (佳能)</option>
+            <option selected>.CR2 (佳能)</option>
+            <option>.ARW (索尼)</option>
+            <option>.NEF (尼康)</option>
+            <option>.RAF (富士)</option>
+            <option>.RW2 (松下)</option>
+            <option>.DNG (通用)</option>
+        </select>
+
+        <div style="margin-left: auto;">
+            <button id="btn-shutdown" class="btn-shutdown">🛑 终止服务器</button>
+        </div>
+    </div>
+
+    <!-- 信息栏 -->
+    <div class="info-bar">
+        <span id="info-label">请先导入JPG文件夹开始筛选</span>
+    </div>
+
+    <!-- 控制按钮栏 -->
+    <div class="control-bar">
+        <button id="btn-prev" class="btn-prev">← 上一张 (Left)</button>
+        <button id="btn-pass" class="btn-pass">你过关 (Space)</button>
+        <button id="btn-reject" class="btn-reject">X 淘汰 (Del)</button>
+        <button id="btn-undo" class="btn-undo">撤销 (Ctrl+Z)</button>
+        <button id="btn-next" class="btn-next">下一张 → (Right)</button>
+    </div>
+
+    <!-- 主图片区域 -->
+    <div class="main-image-container">
+        <img id="main-image" class="hidden" alt="预览图片">
+        <div id="main-image-placeholder" class="placeholder">请导入JPG文件夹开始筛选</div>
+    </div>
+
+    <!-- 缩略图栏 -->
+    <div class="thumbnail-bar" id="thumbnail-bar">
+    </div>
+
+    <!-- 确认复制模态框 -->
+    <div id="confirm-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <h2>筛选完毕</h2>
+            <p id="confirm-text"></p>
+            <div class="modal-buttons">
+                <button id="btn-confirm-copy" class="btn-confirm">确认复制</button>
+                <button id="btn-cancel-copy" class="btn-cancel">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 结果模态框 -->
+    <div id="result-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <h2>复制汇总</h2>
+            <p id="result-text"></p>
+            <div class="modal-buttons">
+                <button id="btn-close-result" class="btn-confirm">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+{
+  "symbols": {
+    "web_app/__pycache__/backend.cpython-314.pyc": {
+      "ipo_ts": 1781577179351,
+      "edit_count": 4,
+      "last_lines": 80,
+      "last_ts": 1781577921791,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "77d4a08f"
+    },
+    "main.py": {
+      "ipo_ts": 1781577406720,
+      "edit_count": 2,
+      "last_lines": 105,
+      "last_ts": 1781577421728,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "c9ec709a"
+    },
+    "web_app/backend.py": {
+      "ipo_ts": 1781577763473,
+      "edit_count": 1,
+      "last_lines": 264,
+      "last_ts": 1781577763473,
+      "delisted": false,
+      "last_source": "onEdit",
+      "last_content_hash": "41fd25c1"
+    }
+  }
+}
