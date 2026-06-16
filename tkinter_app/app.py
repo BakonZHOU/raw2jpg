@@ -26,6 +26,10 @@ class ImageCullerApp:
         self.thumbnails_cache = {}
 
         self.thumb_size = 100
+        
+        # 双击检测相关
+        self.last_right_press_time = 0
+        self.DOUBLE_PRESS_THRESHOLD = 0.2  # 200毫秒
 
         self.build_ui()
         self.bind_keys()
@@ -182,8 +186,15 @@ class ImageCullerApp:
             self.current_idx += 1
             self.update_view()
         else:
-            self.update_view()
-            self.prompt_copy_raw()
+            import time
+            current_time = time.time()
+            if current_time - self.last_right_press_time <= self.DOUBLE_PRESS_THRESHOLD:
+                # 是双击，提示导出
+                self.last_right_press_time = 0
+                self.prompt_copy_raw()
+            else:
+                # 不是双击，更新时间戳
+                self.last_right_press_time = current_time
 
     def update_view(self):
         self.update_info_bar()

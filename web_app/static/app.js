@@ -8,7 +8,10 @@ let appState = {
     jpgDir: '',
     rawDir: '',
     destDir: '',
-    rawExt: '.CR3'
+    rawExt: '.CR3',
+    lastRightPressTime: 0,
+    DOUBLE_PRESS_THRESHOLD: 200,  // 200毫秒
+    imageCache: new Map()  // 图片预加载缓存
 };
 
 // DOM 元素
@@ -57,6 +60,22 @@ function updateInfoBar() {
     elements.infoLabel.textContent = `${currentFile}  |  当前第 ${appState.currentIdx + 1} 张 / 总共 ${total} 张  |  已入选：${passCount} 张`;
 }
 
+function preloadImages() {
+    // 预加载当前图片附近的几张图片
+    const preloadCount = 3;
+    const startIdx = Math.max(0, appState.currentIdx - 1);
+    const endIdx = Math.min(appState.imageFiles.length, appState.currentIdx + preloadCount);
+    
+    for (let i = startIdx; i < endIdx; i++) {
+        const filename = appState.imageFiles[i];
+        if (!appState.imageCache.has(filename)) {
+            const img = new Image();
+            img.src = `${IMAGE_BASE}/${encodeURIComponent(filename)}?w=1920`;
+            appState.imageCache.set(filename, img);
+        }
+    }
+}
+
 function showMainImage() {
     if (!appState.imageFiles.length) {
         elements.mainImage.classList.add('hidden');
@@ -64,9 +83,12 @@ function showMainImage() {
         return;
     }
     const filename = appState.imageFiles[appState.currentIdx];
-    elements.mainImage.src = `${IMAGE_BASE}/${encodeURIComponent(filename)}`;
+    elements.mainImage.src = `${IMAGE_BASE}/${encodeURIComponent(filename)}?w=1920`;
     elements.mainImage.classList.remove('hidden');
     elements.mainImagePlaceholder.classList.add('hidden');
+    
+    // 预加载附近图片
+    preloadImages();
 }
 
 function drawThumbnails() {
@@ -98,7 +120,7 @@ function drawThumbnails() {
         thumb.appendChild(statusBar);
 
         const img = document.createElement('img');
-        img.src = `${IMAGE_BASE}/${encodeURIComponent(filename)}`;
+        img.src = `${IMAGE_BASE}/${encodeURIComponent(filename)}?w=200`;
         img.loading = 'lazy';
         thumb.appendChild(img);
 
@@ -180,9 +202,7 @@ async function markPass() {
         appState.currentIdx = result.current_idx;
         appState.states = result.states;
         updateView();
-        if (result.done) {
-            showConfirmModal();
-        }
+        // 不自动显示确认弹窗，等待用户手动按右键
     }
 }
 
@@ -192,9 +212,7 @@ async function markReject() {
         appState.currentIdx = result.current_idx;
         appState.states = result.states;
         updateView();
-        if (result.done) {
-            showConfirmModal();
-        }
+        // 不自动显示确认弹窗，等待用户手动按右键
     }
 }
 
@@ -216,12 +234,30 @@ async function goPrev() {
 }
 
 async function goNext() {
-    const result = await apiRequest('/go_next', 'POST');
-    if (result.success) {
-        appState.currentIdx = result.current_idx;
-        updateView();
-        if (result.done) {
+    if (!appState.imageFiles.length) return;
+    
+    const isLast = appState.currentIdx === appState.imageFiles.length - 1;
+    
+    if (!isLast) {
+        const result = await apiRequest('/go_next', 'POST');
+        if (result.success) {
+            appState.currentIdx = result.current_idx;
+            updateView();
+            if (result.done) {
+                // 处理通过 mark_pass/mark_reject 到达最后一张的情况
+                // 这里先不处理，等用户手动按右键时再触发双击检测
+            }
+        }
+    } else {
+        // 在最后一张图片，检查是否是双击
+        const currentTime = Date.now();
+        if (currentTime - appState.lastRightPressTime <= appState.DOUBLE_PRESS_THRESHOLD) {
+            // 是双击，显示导出确认
+            appState.lastRightPressTime = 0;
             showConfirmModal();
+        } else {
+            // 不是双击，记录时间
+            appState.lastRightPressTime = currentTime;
         }
     }
 }

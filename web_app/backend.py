@@ -8,6 +8,9 @@ from tkinter import filedialog
 from pathlib import Path
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
+from PIL import Image
+import io
+import hashlib
 
 
 class ImageCullerBackend:
@@ -23,6 +26,11 @@ class ImageCullerBackend:
         self.image_files = []
         self.current_idx = 0
         self.states = {}
+        
+        # 图片缓存目录
+        self.cache_dir = os.path.join(os.path.dirname(__file__), 'image_cache')
+        if not os.path.exists(self.cache_dir):
+            os.makedirs(self.cache_dir)
 
         self.setup_routes()
 
@@ -37,9 +45,65 @@ class ImageCullerBackend:
 
         @self.app.route('/images/<path:filename>')
         def serve_image(filename):
-            if self.jpg_dir and os.path.exists(self.jpg_dir):
+            if not self.jpg_dir or not os.path.exists(self.jpg_dir):
+                return "Image not found", 404
+            
+            file_path = os.path.join(self.jpg_dir, filename)
+            if not os.path.exists(file_path):
+                return "Image not found", 404
+            
+            # 获取尺寸参数
+            width = request.args.get('w', type=int)
+            height = request.args.get('h', type=int)
+            
+            if not width and not height:
+                # 没有尺寸参数，直接返回原图
                 return send_from_directory(self.jpg_dir, filename)
-            return "Image not found", 404
+            
+            # 生成缓存文件名
+            file_hash = hashlib.md5(f"{filename}_{width}_{height}".encode()).hexdigest()
+            cache_path = os.path.join(self.cache_dir, f"{file_hash}.jpg")
+            
+            # 检查缓存是否存在且未过期
+            if os.path.exists(cache_path):
+                cache_mtime = os.path.getmtime(cache_path)
+                file_mtime = os.path.getmtime(file_path)
+                if cache_mtime >= file_mtime:
+                    return send_from_directory(self.cache_dir, f"{file_hash}.jpg")
+            
+            # 生成调整后的图片
+            try:
+                img = Image.open(file_path)
+                
+                # 计算调整后的尺寸
+                original_width, original_height = img.size
+                if width and height:
+                    # 同时指定宽高，保持比例
+                    ratio = min(width / original_width, height / original_height)
+                    new_width = int(original_width * ratio)
+                    new_height = int(original_height * ratio)
+                elif width:
+                    # 只指定宽度
+                    ratio = width / original_width
+                    new_width = width
+                    new_height = int(original_height * ratio)
+                else:
+                    # 只指定高度
+                    ratio = height / original_height
+                    new_width = int(original_width * ratio)
+                    new_height = height
+                
+                # 调整图片大小
+                img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                
+                # 保存到缓存
+                img.save(cache_path, 'JPEG', quality=85, optimize=True)
+                
+                return send_from_directory(self.cache_dir, f"{file_hash}.jpg")
+            except Exception as e:
+                print(f"Error processing image: {e}")
+                # 出错时返回原图
+                return send_from_directory(self.jpg_dir, filename)
 
         @self.app.route('/api/select_jpg_dir', methods=['POST'])
         def api_select_jpg_dir():
