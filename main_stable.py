@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
 """
-相机照片极速筛选工具 v2.2
-支持两种启动模式：
-- tkinter GUI 和 Web（网页版
-修改 MODE 变量选择启动模式：
-- 'tkinter' - 使用传统桌面应用
-- 'web' - 使用Web网页版
+相机照片极速筛选工具 v2.2 (稳定版)
+默认使用 Tkinter 模式，更稳定可靠
 """
 import os
 import sys
@@ -25,25 +21,20 @@ def get_base_path():
 
 BASE_PATH = get_base_path()
 
-# ================== 配置启动模式 ==================
-# 修改这里切换模式：'tkinter' 或 'web'
-MODE = 'web'  # 默认使用 Web 版
-
+# ========== 配置 ==========
+MODE = 'tkinter'  # 稳定版默认使用 Tkinter
 
 def run_tkinter():
-    """运行tkinter版本"""
+    """运行 Tkinter 版本（稳定）"""
     import tkinter as tk
     from tkinter_app.app import ImageCullerApp
-
     root = tk.Tk()
     app = ImageCullerApp(root)
     root.mainloop()
 
-
-def kill_port_process(port=5000):
-    """杀死占用指定端口的进程（Windows），但不杀自己"""
+def kill_port_process_safe(port=5000):
+    """安全清理端口（避免无限循环）"""
     try:
-        current_pid = str(os.getpid())
         result = subprocess.run(
             ['netstat', '-ano', '-p', 'TCP'],
             capture_output=True,
@@ -51,30 +42,26 @@ def kill_port_process(port=5000):
             encoding='gbk',
             errors='ignore'
         )
+        current_pid = str(os.getpid())
         for line in result.stdout.splitlines():
             if f':{port}' in line and 'LISTENING' in line:
                 parts = line.split()
                 pid = parts[-1]
                 if pid and pid.isdigit() and pid != current_pid:
-                    print(f"发现旧进程占用端口 {port}，正在终止 PID: {pid}")
+                    print(f"清理端口 {port}，PID: {pid}")
                     subprocess.run(['taskkill', '/F', '/PID', pid], capture_output=True)
                     time.sleep(0.5)
     except Exception as e:
-        print(f"清理端口时出错: {e}")
-
+        print(f"清理端口时忽略错误: {e}")
 
 def run_web():
-    """运行Web版本"""
-    print("正在检查并清理旧进程...")
-    kill_port_process(5000)
-    
+    """运行 Web 版本"""
+    kill_port_process_safe(5000)
     from web_app.backend import ImageCullerBackend
     import webbrowser
     import threading
-
     web_dir = os.path.join(BASE_PATH, 'web_app')
     os.chdir(web_dir)
-
     backend = ImageCullerBackend()
     
     def open_browser():
@@ -82,17 +69,11 @@ def run_web():
         webbrowser.open('http://127.0.0.1:5000')
     
     threading.Thread(target=open_browser, daemon=True).start()
-    
-    print("=" * 50)
-    print("Web版本已启动！")
-    print("请在浏览器中访问: http://127.0.0.1:5000")
-    print("=" * 50)
-    
+    print("Web 版本启动！")
     backend.run(host='127.0.0.1', port=5000, debug=False)
 
-
 if __name__ == "__main__":
-    print(f"正在启动 {MODE} 版本...")
+    print(f"启动 {MODE} 版本...")
     if MODE == 'tkinter':
         run_tkinter()
     elif MODE == 'web':
