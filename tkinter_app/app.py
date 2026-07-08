@@ -3,9 +3,17 @@ import shutil
 import tkinter as tk
 from tkinter import messagebox, filedialog
 from tkinter import ttk
-from PIL import Image, ImageTk, ImageFile
+from PIL import Image, ImageTk, ImageFile, ImageOps
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+def correct_image_orientation(img):
+    """根据EXIF信息自动校正图像方向 - 使用PIL内置方法"""
+    try:
+        img = ImageOps.exif_transpose(img)
+    except Exception as e:
+        pass
+    return img
 
 
 class ImageCullerApp:
@@ -227,6 +235,7 @@ class ImageCullerApp:
                 max_w, max_h = 800, 500
 
             img = Image.open(file_path)
+            img = correct_image_orientation(img)  # 校正图像方向
             img.draft('RGB', (max_w, max_h))
             img.thumbnail((max_w, max_h), Image.Resampling.BILINEAR)
 
@@ -265,6 +274,7 @@ class ImageCullerApp:
             if filename not in self.thumbnails_cache:
                 try:
                     t_img = Image.open(file_path)
+                    t_img = correct_image_orientation(t_img)  # 校正图像方向
                     t_img.draft('RGB', (self.thumb_size, self.thumb_size))
                     t_img.thumbnail((self.thumb_size, self.thumb_size), Image.Resampling.NEAREST)
                     self.thumbnails_cache[filename] = ImageTk.PhotoImage(t_img)

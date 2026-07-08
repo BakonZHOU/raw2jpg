@@ -138,6 +138,7 @@ body {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
+    cursor: zoom-in;
 }
 
 .main-image-container .placeholder {
@@ -156,6 +157,96 @@ body {
     gap: 10px;
     align-items: center;
     scroll-behavior: smooth;
+}
+
+.resize-handle {
+    height: 5px;
+    background-color: #444;
+    cursor: ns-resize;
+    transition: background-color 0.2s;
+}
+
+.resize-handle:hover {
+    background-color: #00BCD4;
+}
+
+.zoom-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.95);
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+}
+
+.zoom-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    background-color: #222;
+}
+
+.zoom-close {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 30px;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.zoom-close:hover {
+    color: #00BCD4;
+}
+
+.zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.zoom-btn {
+    background-color: #444;
+    border: none;
+    color: white;
+    padding: 8px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.zoom-btn:hover {
+    background-color: #555;
+}
+
+#zoom-level {
+    color: white;
+    font-size: 14px;
+    min-width: 50px;
+    text-align: center;
+}
+
+.zoom-content {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#zoom-image {
+    max-width: none;
+    max-height: none;
+    cursor: grab;
+    user-select: none;
+}
+
+#zoom-image:active {
+    cursor: grabbing;
 }
 
 .thumbnail {

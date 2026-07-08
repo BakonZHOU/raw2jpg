@@ -57,6 +57,25 @@
     <!-- 缩略图栏 -->
     <div class="thumbnail-bar" id="thumbnail-bar">
     </div>
+    
+    <!-- 缩略图栏高度调节手柄 -->
+    <div class="resize-handle" id="resize-handle"></div>
+
+    <!-- 图片缩放模态框 -->
+    <div id="zoom-modal" class="zoom-modal hidden">
+        <div class="zoom-header">
+            <button id="zoom-close" class="zoom-close">&times;</button>
+            <div class="zoom-controls">
+                <button id="zoom-out" class="zoom-btn">−</button>
+                <span id="zoom-level">100%</span>
+                <button id="zoom-in" class="zoom-btn">+</button>
+                <button id="zoom-reset" class="zoom-btn">重置</button>
+            </div>
+        </div>
+        <div class="zoom-content" id="zoom-content">
+            <img id="zoom-image" src="" alt="缩放图片">
+        </div>
+    </div>
 
     <!-- 确认复制模态框 -->
     <div id="confirm-modal" class="modal-overlay hidden">

@@ -4,13 +4,23 @@ import json
 import signal
 import sys
 import tkinter as tk
+import time
+import threading
 from tkinter import filedialog
 from pathlib import Path
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
-from PIL import Image
+from PIL import Image, ImageOps
 import io
 import hashlib
+
+def correct_image_orientation(img):
+    """根据EXIF信息自动校正图像方向 - 使用PIL内置方法"""
+    try:
+        img = ImageOps.exif_transpose(img)
+    except Exception as e:
+        pass
+    return img
 
 
 class ImageCullerBackend:
@@ -31,10 +41,37 @@ class ImageCullerBackend:
         self.cache_dir = os.path.join(os.path.dirname(__file__), 'image_cache')
         if not os.path.exists(self.cache_dir):
             os.makedirs(self.cache_dir)
+        
+        # 自动关闭功能
+        self.last_access_time = time.time()
+        self.auto_shutdown_timeout = 10  # 10秒无访问自动关闭
+        self.shutdown_flag = False
+        self._start_auto_shutdown_checker()
 
         self.setup_routes()
+    
+    def _start_auto_shutdown_checker(self):
+        """启动自动关闭检查器"""
+        def checker():
+            while not self.shutdown_flag:
+                time.sleep(5)  # 每5秒检查一次
+                if time.time() - self.last_access_time > self.auto_shutdown_timeout:
+                    print(f"\n{self.auto_shutdown_timeout}秒无访问，自动关闭服务器...")
+                    os.kill(os.getpid(), signal.SIGINT)
+                    break
+        
+        threading.Thread(target=checker, daemon=True).start()
+    
+    def _update_access_time(self):
+        """更新最后访问时间"""
+        self.last_access_time = time.time()
 
     def setup_routes(self):
+        @self.app.before_request
+        def before_request():
+            """每次请求前更新访问时间"""
+            self._update_access_time()
+        
         @self.app.route('/')
         def index():
             return send_from_directory('.', 'index.html')
@@ -74,6 +111,7 @@ class ImageCullerBackend:
             # 生成调整后的图片
             try:
                 img = Image.open(file_path)
+                img = correct_image_orientation(img)  # 校正图像方向
                 
                 # 计算调整后的尺寸
                 original_width, original_height = img.size

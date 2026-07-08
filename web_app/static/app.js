@@ -30,7 +30,16 @@ const elements = {
     resultText: document.getElementById('result-text'),
     btnConfirmCopy: document.getElementById('btn-confirm-copy'),
     btnCancelCopy: document.getElementById('btn-cancel-copy'),
-    btnCloseResult: document.getElementById('btn-close-result')
+    btnCloseResult: document.getElementById('btn-close-result'),
+    zoomModal: document.getElementById('zoom-modal'),
+    zoomImage: document.getElementById('zoom-image'),
+    zoomClose: document.getElementById('zoom-close'),
+    zoomIn: document.getElementById('zoom-in'),
+    zoomOut: document.getElementById('zoom-out'),
+    zoomReset: document.getElementById('zoom-reset'),
+    zoomLevel: document.getElementById('zoom-level'),
+    zoomContent: document.getElementById('zoom-content'),
+    resizeHandle: document.getElementById('resize-handle')
 };
 
 // API 请求函数
@@ -300,9 +309,16 @@ async function shutdownServer() {
     if (confirm('确定要终止服务器吗？')) {
         try {
             await apiRequest('/shutdown', 'POST');
-            alert('服务器已终止！请关闭此页面。');
+            alert('服务器已终止！页面将自动关闭。');
+            // 延迟一点时间让用户看到提示
+            setTimeout(() => {
+                window.close();
+            }, 1000);
         } catch (e) {
-            alert('服务器已终止！');
+            alert('服务器已终止！页面将自动关闭。');
+            setTimeout(() => {
+                window.close();
+            }, 1000);
         }
     }
 }
@@ -365,5 +381,136 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+let zoomState = {
+    scale: 1,
+    translateX: 0,
+    translateY: 0,
+    isDragging: false,
+    startX: 0,
+    startY: 0
+};
+
+function openZoomModal() {
+    if (!appState.imageFiles.length) return;
+    const filename = appState.imageFiles[appState.currentIdx];
+    elements.zoomImage.src = `${IMAGE_BASE}/${encodeURIComponent(filename)}`;
+    zoomState.scale = 1;
+    zoomState.translateX = 0;
+    zoomState.translateY = 0;
+    updateZoomTransform();
+    elements.zoomModal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeZoomModal() {
+    elements.zoomModal.classList.add('hidden');
+    document.body.style.overflow = '';
+}
+
+function updateZoomTransform() {
+    elements.zoomImage.style.transform = `translate(${zoomState.translateX}px, ${zoomState.translateY}px) scale(${zoomState.scale})`;
+    elements.zoomLevel.textContent = `${Math.round(zoomState.scale * 100)}%`;
+}
+
+function zoomIn() {
+    zoomState.scale = Math.min(zoomState.scale * 1.2, 10);
+    updateZoomTransform();
+}
+
+function zoomOut() {
+    zoomState.scale = Math.max(zoomState.scale / 1.2, 0.1);
+    updateZoomTransform();
+}
+
+function resetZoom() {
+    zoomState.scale = 1;
+    zoomState.translateX = 0;
+    zoomState.translateY = 0;
+    updateZoomTransform();
+}
+
+elements.mainImage.addEventListener('click', () => {
+    openZoomModal();
+});
+
+elements.zoomClose.addEventListener('click', closeZoomModal);
+elements.zoomIn.addEventListener('click', zoomIn);
+elements.zoomOut.addEventListener('click', zoomOut);
+elements.zoomReset.addEventListener('click', resetZoom);
+
+document.addEventListener('keydown', (e) => {
+    if (e.code === 'Escape' && !elements.zoomModal.classList.contains('hidden')) {
+        closeZoomModal();
+    }
+});
+
+elements.zoomModal.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (e.deltaY < 0) {
+        zoomIn();
+    } else {
+        zoomOut();
+    }
+}, { passive: false });
+
+elements.zoomImage.addEventListener('mousedown', (e) => {
+    zoomState.isDragging = true;
+    zoomState.startX = e.clientX - zoomState.translateX;
+    zoomState.startY = e.clientY - zoomState.translateY;
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (!zoomState.isDragging) return;
+    zoomState.translateX = e.clientX - zoomState.startX;
+    zoomState.translateY = e.clientY - zoomState.startY;
+    updateZoomTransform();
+});
+
+document.addEventListener('mouseup', () => {
+    zoomState.isDragging = false;
+});
+
+elements.zoomImage.addEventListener('dblclick', resetZoom);
+
+let isResizing = false;
+let startY = 0;
+let startHeight = 0;
+const MIN_THUMBNAIL_HEIGHT = 80;
+const MAX_THUMBNAIL_HEIGHT = 400;
+
+elements.resizeHandle.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    startY = e.clientY;
+    startHeight = elements.thumbnailBar.offsetHeight;
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    const deltaY = startY - e.clientY;
+    let newHeight = startHeight + deltaY;
+    newHeight = Math.max(MIN_THUMBNAIL_HEIGHT, Math.min(MAX_THUMBNAIL_HEIGHT, newHeight));
+    elements.thumbnailBar.style.height = `${newHeight}px`;
+});
+
+document.addEventListener('mouseup', () => {
+    if (isResizing) {
+        isResizing = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+    }
+});
+
+// 心跳机制：定期发送请求保持服务器活跃
+function startHeartbeat() {
+    // 每5秒发送一次心跳（保证在10秒超时前有请求）
+    setInterval(() => {
+        // 发送一个轻量级请求
+        fetch(`${API_BASE}/get_images`).catch(() => {});
+    }, 5000);
+}
+
 // 初始化
 refreshState();
+startHeartbeat();
