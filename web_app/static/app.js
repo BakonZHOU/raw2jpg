@@ -403,12 +403,6 @@ document.getElementById('btn-select-raw').addEventListener('click', selectRawDir
 document.getElementById('btn-select-dest').addEventListener('click', selectDestDir);
 document.getElementById('btn-shutdown').addEventListener('click', shutdownServer);
 
-document.getElementById('btn-prev').addEventListener('click', goPrev);
-document.getElementById('btn-pass').addEventListener('click', markPass);
-document.getElementById('btn-reject').addEventListener('click', markReject);
-document.getElementById('btn-undo').addEventListener('click', undo);
-document.getElementById('btn-next').addEventListener('click', goNext);
-
 elements.btnConfirmCopy.addEventListener('click', executeCopy);
 elements.btnCancelCopy.addEventListener('click', () => {
     elements.confirmModal.classList.add('hidden');
@@ -450,50 +444,98 @@ document.addEventListener('keydown', (e) => {
 
 let zoomState = {
     scale: 1,
+    fitScale: 1,
     translateX: 0,
     translateY: 0,
     isDragging: false,
+    pointerId: null,
     startX: 0,
-    startY: 0
+    startY: 0,
+    startTranslateX: 0,
+    startTranslateY: 0
 };
+
+function updateZoomTransform() {
+    elements.zoomImage.style.transform = `translate(${zoomState.translateX}px, ${zoomState.translateY}px) scale(${zoomState.scale})`;
+    elements.zoomLevel.textContent = `${Math.round((zoomState.scale / zoomState.fitScale) * 100)}%`;
+}
+
+function fitZoomToContent() {
+    if (!elements.zoomImage.naturalWidth || !elements.zoomImage.naturalHeight) return;
+
+    const contentWidth = elements.zoomContent.clientWidth;
+    const contentHeight = elements.zoomContent.clientHeight;
+    const scale = Math.min(
+        contentWidth / elements.zoomImage.naturalWidth,
+        contentHeight / elements.zoomImage.naturalHeight
+    );
+
+    zoomState.fitScale = scale;
+    zoomState.scale = scale;
+    zoomState.translateX = (contentWidth - elements.zoomImage.naturalWidth * scale) / 2;
+    zoomState.translateY = (contentHeight - elements.zoomImage.naturalHeight * scale) / 2;
+    updateZoomTransform();
+}
 
 function openZoomModal() {
     if (!appState.imageFiles.length) return;
     const filename = appState.imageFiles[appState.currentIdx];
+    elements.zoomImage.onload = fitZoomToContent;
     elements.zoomImage.src = `${IMAGE_BASE}/${encodeURIComponent(filename)}`;
-    zoomState.scale = 1;
-    zoomState.translateX = 0;
-    zoomState.translateY = 0;
-    updateZoomTransform();
+    zoomState.isDragging = false;
+    zoomState.pointerId = null;
     elements.zoomModal.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
+    if (elements.zoomImage.complete) {
+        fitZoomToContent();
+    }
 }
 
 function closeZoomModal() {
+    zoomState.isDragging = false;
+    zoomState.pointerId = null;
     elements.zoomModal.classList.add('hidden');
     document.body.style.overflow = '';
 }
 
-function updateZoomTransform() {
-    elements.zoomImage.style.transform = `translate(${zoomState.translateX}px, ${zoomState.translateY}px) scale(${zoomState.scale})`;
-    elements.zoomLevel.textContent = `${Math.round(zoomState.scale * 100)}%`;
+function zoomInAt(clientX, clientY) {
+    const rect = elements.zoomContent.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    const nextScale = Math.min(zoomState.scale * 1.2, 10);
+    const ratio = nextScale / zoomState.scale;
+
+    zoomState.translateX = x - (x - zoomState.translateX) * ratio;
+    zoomState.translateY = y - (y - zoomState.translateY) * ratio;
+    zoomState.scale = nextScale;
+    updateZoomTransform();
+}
+
+function zoomOutAt(clientX, clientY) {
+    const rect = elements.zoomContent.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    const nextScale = Math.max(zoomState.scale / 1.2, zoomState.fitScale);
+    const ratio = nextScale / zoomState.scale;
+
+    zoomState.translateX = x - (x - zoomState.translateX) * ratio;
+    zoomState.translateY = y - (y - zoomState.translateY) * ratio;
+    zoomState.scale = nextScale;
+    updateZoomTransform();
 }
 
 function zoomIn() {
-    zoomState.scale = Math.min(zoomState.scale * 1.2, 10);
-    updateZoomTransform();
+    const rect = elements.zoomContent.getBoundingClientRect();
+    zoomInAt(rect.left + rect.width / 2, rect.top + rect.height / 2);
 }
 
 function zoomOut() {
-    zoomState.scale = Math.max(zoomState.scale / 1.2, 0.1);
-    updateZoomTransform();
+    const rect = elements.zoomContent.getBoundingClientRect();
+    zoomOutAt(rect.left + rect.width / 2, rect.top + rect.height / 2);
 }
 
 function resetZoom() {
-    zoomState.scale = 1;
-    zoomState.translateX = 0;
-    zoomState.translateY = 0;
-    updateZoomTransform();
+    fitZoomToContent();
 }
 
 elements.mainImage.addEventListener('click', () => {
@@ -514,28 +556,39 @@ document.addEventListener('keydown', (e) => {
 elements.zoomModal.addEventListener('wheel', (e) => {
     e.preventDefault();
     if (e.deltaY < 0) {
-        zoomIn();
+        zoomInAt(e.clientX, e.clientY);
     } else {
-        zoomOut();
+        zoomOutAt(e.clientX, e.clientY);
     }
 }, { passive: false });
 
 elements.zoomImage.addEventListener('mousedown', (e) => {
+    if (zoomState.scale <= zoomState.fitScale) return;
     zoomState.isDragging = true;
-    zoomState.startX = e.clientX - zoomState.translateX;
-    zoomState.startY = e.clientY - zoomState.translateY;
+    zoomState.pointerId = e.button;
+    zoomState.startX = e.clientX;
+    zoomState.startY = e.clientY;
+    zoomState.startTranslateX = zoomState.translateX;
+    zoomState.startTranslateY = zoomState.translateY;
+    e.preventDefault();
 });
 
 document.addEventListener('mousemove', (e) => {
     if (!zoomState.isDragging) return;
-    zoomState.translateX = e.clientX - zoomState.startX;
-    zoomState.translateY = e.clientY - zoomState.startY;
+    zoomState.translateX = zoomState.startTranslateX + (e.clientX - zoomState.startX);
+    zoomState.translateY = zoomState.startTranslateY + (e.clientY - zoomState.startY);
     updateZoomTransform();
 });
 
-document.addEventListener('mouseup', () => {
+const stopZoomDrag = () => {
     zoomState.isDragging = false;
-});
+    zoomState.pointerId = null;
+};
+
+document.addEventListener('mouseup', stopZoomDrag);
+window.addEventListener('mouseup', stopZoomDrag);
+window.addEventListener('blur', stopZoomDrag);
+document.addEventListener('mouseleave', stopZoomDrag);
 
 elements.zoomImage.addEventListener('dblclick', resetZoom);
 

@@ -295,6 +295,7 @@ body {
 
 .zoom-content {
     flex: 1;
+    position: relative;
     overflow: auto;
     display: flex;
     align-items: center;
@@ -302,6 +303,10 @@ body {
 }
 
 #zoom-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: top left;
     max-width: none;
     max-height: none;
     cursor: grab;
