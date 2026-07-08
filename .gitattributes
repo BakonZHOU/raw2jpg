@@ -1,11 +1,23 @@
+# 自动处理换行符
 * text=auto
 
+# Python 文件强制用 LF
 *.py text eol=lf
+
+# 前端文件
 *.js text eol=lf
 *.css text eol=lf
 *.html text eol=lf
-*.md text eol=lf
-*.json text eol=lf
-*.txt text eol=lf
 
-*.ndjson text eol=lf
+# .kagent 生成文件统一 LF
+.kagent/*.ndjson text eol=lf
+.kagent/*.json text eol=lf
+
+# 图片和二进制文件不转换
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.ico binary
+
+# Spec文件
+*.spec text eol=lf
