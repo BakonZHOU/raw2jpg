@@ -7,39 +7,37 @@
     <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
-    <!-- 顶部路径配置栏 -->
     <div class="path-bar">
-        <button id="btn-select-jpg">1.导入JPG目录</button>
-        <span id="lbl-jpg-path" class="path-label">[未选择]</span>
+        <div class="drop-zone" id="drop-zone-jpg" data-type="jpg">
+            <button id="btn-select-jpg">1.导入JPG目录</button>
+            <span id="lbl-jpg-path" class="path-label">[未选择]</span>
+            <div class="drop-hint">拖入文件夹或文件<br>快速选择目录</div>
+        </div>
         
-        <button id="btn-select-raw">2.导入RAW目录</button>
-        <span id="lbl-raw-path" class="path-label">[未选择]</span>
+        <div class="drop-zone" id="drop-zone-raw" data-type="raw">
+            <button id="btn-select-raw">2.导入RAW目录</button>
+            <span id="lbl-raw-path" class="path-label">[未选择]</span>
+            <div class="drop-hint">拖入文件夹或文件<br>快速选择目录</div>
+        </div>
         
-        <button id="btn-select-dest">3.确定导出目录</button>
-        <span id="lbl-dest-path" class="path-label">[未选择]</span>
+        <div class="drop-zone" id="drop-zone-dest" data-type="dest">
+            <button id="btn-select-dest">3.确定导出目录</button>
+            <span id="lbl-dest-path" class="path-label">[未选择]</span>
+            <div class="drop-hint">拖入文件夹或文件<br>快速选择目录</div>
+        </div>
         
         <label>RAW格式:</label>
-        <select id="select-raw-ext">
-            <option>.CR3 (佳能)</option>
-            <option selected>.CR2 (佳能)</option>
-            <option>.ARW (索尼)</option>
-            <option>.NEF (尼康)</option>
-            <option>.RAF (富士)</option>
-            <option>.RW2 (松下)</option>
-            <option>.DNG (通用)</option>
-        </select>
+        <span id="lbl-raw-ext" class="raw-ext-display">.CR2</span>
 
         <div style="margin-left: auto;">
             <button id="btn-shutdown" class="btn-shutdown">🛑 终止服务器</button>
         </div>
     </div>
 
-    <!-- 信息栏 -->
     <div class="info-bar">
         <span id="info-label">请先导入JPG文件夹开始筛选</span>
     </div>
 
-    <!-- 控制按钮栏 -->
     <div class="control-bar">
         <button id="btn-prev" class="btn-prev">← 上一张 (Left)</button>
         <button id="btn-pass" class="btn-pass">你过关 (Space)</button>
@@ -48,20 +46,17 @@
         <button id="btn-next" class="btn-next">下一张 → (Right)</button>
     </div>
 
-    <!-- 主图片区域 -->
-    <div class="main-image-container">
+    <div class="main-image-container drop-zone" id="main-drop-zone" data-type="multi">
         <img id="main-image" class="hidden" alt="预览图片">
         <div id="main-image-placeholder" class="placeholder">请导入JPG文件夹开始筛选</div>
+        <div id="drag-hint" class="drag-hint hidden">拖入文件夹或文件<br>快速选择目录</div>
     </div>
 
-    <!-- 缩略图栏 -->
     <div class="thumbnail-bar" id="thumbnail-bar">
     </div>
     
-    <!-- 缩略图栏高度调节手柄 -->
     <div class="resize-handle" id="resize-handle"></div>
 
-    <!-- 图片缩放模态框 -->
     <div id="zoom-modal" class="zoom-modal hidden">
         <div class="zoom-header">
             <button id="zoom-close" class="zoom-close">&times;</button>
@@ -77,7 +72,6 @@
         </div>
     </div>
 
-    <!-- 确认复制模态框 -->
     <div id="confirm-modal" class="modal-overlay hidden">
         <div class="modal">
             <h2>筛选完毕</h2>
@@ -89,7 +83,6 @@
         </div>
     </div>
 
-    <!-- 结果模态框 -->
     <div id="result-modal" class="modal-overlay hidden">
         <div class="modal">
             <h2>复制汇总</h2>

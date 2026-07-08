@@ -6,7 +6,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[('web_app', 'web_app')],
-    hiddenimports=['flask', 'flask_cors', 'PIL._tkinter_finder'],
+    hiddenimports=['flask', 'flask_cors', 'tkinter', 'PIL._tkinter_finder'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='相机照片筛选工具(Web版)',
+    name='相机照片筛选工具',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='app.ico',  # 添加图标文件路径
+    icon='app.ico',
 )

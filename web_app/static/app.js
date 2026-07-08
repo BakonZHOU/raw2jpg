@@ -8,18 +8,17 @@ let appState = {
     jpgDir: '',
     rawDir: '',
     destDir: '',
-    rawExt: '.CR3',
+    rawExt: '.CR2',
     lastRightPressTime: 0,
-    DOUBLE_PRESS_THRESHOLD: 200,  // 200毫秒
-    imageCache: new Map()  // 图片预加载缓存
+    DOUBLE_PRESS_THRESHOLD: 200,
+    imageCache: new Map()
 };
 
-// DOM 元素
 const elements = {
     lblJpgPath: document.getElementById('lbl-jpg-path'),
     lblRawPath: document.getElementById('lbl-raw-path'),
     lblDestPath: document.getElementById('lbl-dest-path'),
-    selectRawExt: document.getElementById('select-raw-ext'),
+    lblRawExt: document.getElementById('lbl-raw-ext'),
     infoLabel: document.getElementById('info-label'),
     mainImage: document.getElementById('main-image'),
     mainImagePlaceholder: document.getElementById('main-image-placeholder'),
@@ -39,10 +38,10 @@ const elements = {
     zoomReset: document.getElementById('zoom-reset'),
     zoomLevel: document.getElementById('zoom-level'),
     zoomContent: document.getElementById('zoom-content'),
-    resizeHandle: document.getElementById('resize-handle')
+    resizeHandle: document.getElementById('resize-handle'),
+    dragHint: document.getElementById('drag-hint')
 };
 
-// API 请求函数
 async function apiRequest(endpoint, method = 'GET', data = null) {
     const options = {
         method,
@@ -57,10 +56,9 @@ async function apiRequest(endpoint, method = 'GET', data = null) {
     return await response.json();
 }
 
-// UI 更新函数
 function updateInfoBar() {
     if (!appState.imageFiles.length) {
-        elements.infoLabel.textContent = '请点击上方按钮导入JPG文件夹开始筛选';
+        elements.infoLabel.textContent = '请先导入JPG文件夹开始筛选';
         return;
     }
     const currentFile = appState.imageFiles[appState.currentIdx];
@@ -70,7 +68,6 @@ function updateInfoBar() {
 }
 
 function preloadImages() {
-    // 预加载当前图片附近的几张图片
     const preloadCount = 3;
     const startIdx = Math.max(0, appState.currentIdx - 1);
     const endIdx = Math.min(appState.imageFiles.length, appState.currentIdx + preloadCount);
@@ -96,7 +93,6 @@ function showMainImage() {
     elements.mainImage.classList.remove('hidden');
     elements.mainImagePlaceholder.classList.add('hidden');
     
-    // 预加载附近图片
     preloadImages();
 }
 
@@ -137,7 +133,6 @@ function drawThumbnails() {
         elements.thumbnailBar.appendChild(thumb);
     }
 
-    // 滚动到当前缩略图
     const currentThumb = elements.thumbnailBar.querySelector('.current');
     if (currentThumb) {
         currentThumb.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
@@ -150,9 +145,8 @@ function updateView() {
     drawThumbnails();
 }
 
-// 操作函数
-async function browseFolder() {
-    const result = await apiRequest('/browse-folder', 'POST');
+async function browseFolder(initialPath = null) {
+    const result = await apiRequest('/browse-folder', 'POST', { initial_path: initialPath });
     if (result.success) {
         return result.folder_path;
     } else if (result.error) {
@@ -161,10 +155,10 @@ async function browseFolder() {
     return null;
 }
 
-async function selectJpgDir() {
-    const directory = await browseFolder();
+async function selectJpgDir(initialPath = null) {
+    const directory = await browseFolder(initialPath);
     if (directory) {
-        const result = await apiRequest('/select_jpg_dir', 'POST', { directory });
+        const result = await apiRequest('/select-jpg-dir', 'POST', { directory });
         if (result.success) {
             elements.lblJpgPath.textContent = result.directory;
             appState.jpgDir = directory;
@@ -175,21 +169,26 @@ async function selectJpgDir() {
     }
 }
 
-async function selectRawDir() {
-    const directory = await browseFolder();
+async function selectRawDir(initialPath = null) {
+    const directory = await browseFolder(initialPath);
     if (directory) {
-        const result = await apiRequest('/set_raw_dir', 'POST', { directory });
+        const result = await apiRequest('/set-raw-dir', 'POST', { directory });
         if (result.success) {
             elements.lblRawPath.textContent = result.directory;
             appState.rawDir = directory;
+            // 更新 RAW 后缀显示
+            if (result.raw_ext) {
+                appState.rawExt = result.raw_ext;
+                elements.lblRawExt.textContent = result.raw_ext;
+            }
         }
     }
 }
 
-async function selectDestDir() {
-    const directory = await browseFolder();
+async function selectDestDir(initialPath = null) {
+    const directory = await browseFolder(initialPath);
     if (directory) {
-        const result = await apiRequest('/set_dest_dir', 'POST', { directory });
+        const result = await apiRequest('/set-dest-dir', 'POST', { directory });
         if (result.success) {
             elements.lblDestPath.textContent = result.directory;
             appState.destDir = directory;
@@ -198,30 +197,33 @@ async function selectDestDir() {
 }
 
 async function refreshState() {
-    const result = await apiRequest('/get_images');
+    const result = await apiRequest('/get-images');
     appState.imageFiles = result.files || [];
     appState.currentIdx = result.current_idx || 0;
     appState.states = result.states || {};
+    // 更新 RAW 后缀
+    if (result.raw_ext) {
+        appState.rawExt = result.raw_ext;
+        elements.lblRawExt.textContent = result.raw_ext;
+    }
     updateView();
 }
 
 async function markPass() {
-    const result = await apiRequest('/mark_pass', 'POST');
+    const result = await apiRequest('/mark-pass', 'POST');
     if (result.success) {
         appState.currentIdx = result.current_idx;
         appState.states = result.states;
         updateView();
-        // 不自动显示确认弹窗，等待用户手动按右键
     }
 }
 
 async function markReject() {
-    const result = await apiRequest('/mark_reject', 'POST');
+    const result = await apiRequest('/mark-reject', 'POST');
     if (result.success) {
         appState.currentIdx = result.current_idx;
         appState.states = result.states;
         updateView();
-        // 不自动显示确认弹窗，等待用户手动按右键
     }
 }
 
@@ -235,7 +237,7 @@ async function undo() {
 }
 
 async function goPrev() {
-    const result = await apiRequest('/go_prev', 'POST');
+    const result = await apiRequest('/go-prev', 'POST');
     if (result.success) {
         appState.currentIdx = result.current_idx;
         updateView();
@@ -248,31 +250,24 @@ async function goNext() {
     const isLast = appState.currentIdx === appState.imageFiles.length - 1;
     
     if (!isLast) {
-        const result = await apiRequest('/go_next', 'POST');
+        const result = await apiRequest('/go-next', 'POST');
         if (result.success) {
             appState.currentIdx = result.current_idx;
             updateView();
-            if (result.done) {
-                // 处理通过 mark_pass/mark_reject 到达最后一张的情况
-                // 这里先不处理，等用户手动按右键时再触发双击检测
-            }
         }
     } else {
-        // 在最后一张图片，检查是否是双击
         const currentTime = Date.now();
         if (currentTime - appState.lastRightPressTime <= appState.DOUBLE_PRESS_THRESHOLD) {
-            // 是双击，显示导出确认
             appState.lastRightPressTime = 0;
             showConfirmModal();
         } else {
-            // 不是双击，记录时间
             appState.lastRightPressTime = currentTime;
         }
     }
 }
 
 async function goTo(idx) {
-    const result = await apiRequest('/go_to', 'POST', { idx });
+    const result = await apiRequest('/go-to', 'POST', { idx });
     if (result.success) {
         appState.currentIdx = result.current_idx;
         updateView();
@@ -290,7 +285,7 @@ function showConfirmModal() {
 
 async function executeCopy() {
     elements.confirmModal.classList.add('hidden');
-    const result = await apiRequest('/copy_raw', 'POST');
+    const result = await apiRequest('/copy-raw', 'POST');
     if (result.success) {
         let msg = `🎉 复制完成！成功复制 RAW 文件：${result.success_count} 张`;
         if (result.missing_files && result.missing_files.length > 0) {
@@ -306,34 +301,107 @@ async function executeCopy() {
 }
 
 async function shutdownServer() {
-    if (confirm('确定要终止服务器吗？')) {
-        try {
-            await apiRequest('/shutdown', 'POST');
-            alert('服务器已终止！页面将自动关闭。');
-            // 延迟一点时间让用户看到提示
-            setTimeout(() => {
-                window.close();
-            }, 1000);
-        } catch (e) {
-            alert('服务器已终止！页面将自动关闭。');
-            setTimeout(() => {
-                window.close();
-            }, 1000);
-        }
+    try {
+        await apiRequest('/shutdown', 'POST');
+        alert('服务器已终止！页面将自动关闭。');
+        setTimeout(() => {
+            window.close();
+        }, 1000);
+    } catch (e) {
+        alert('服务器已终止！页面将自动关闭。');
+        setTimeout(() => {
+            window.close();
+        }, 1000);
     }
 }
 
-// 事件绑定
+async function extractFolderPathFromDataTransfer(dataTransfer) {
+    try {
+        const items = dataTransfer.items;
+        
+        if (!items || items.length === 0) {
+            return null;
+        }
+
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            
+            if (item.kind === 'file') {
+                const entry = item.webkitGetAsEntry();
+                
+                if (entry) {
+                    if (entry.isDirectory) {
+                        return entry.name;
+                    } else {
+                        return entry.name;
+                    }
+                }
+            }
+        }
+        
+        return null;
+    } catch (e) {
+        console.error('提取文件夹路径失败:', e);
+        return null;
+    }
+}
+
+function setupDragAndDrop() {
+    const dropZones = document.querySelectorAll('.drop-zone');
+    
+    dropZones.forEach(zone => {
+        zone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            zone.classList.add('drag-over');
+            
+            if (zone.id === 'main-drop-zone') {
+                elements.dragHint.classList.remove('hidden');
+            }
+        });
+        
+        zone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            zone.classList.remove('drag-over');
+            
+            if (zone.id === 'main-drop-zone') {
+                elements.dragHint.classList.add('hidden');
+            }
+        });
+        
+        zone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            zone.classList.remove('drag-over');
+            
+            if (zone.id === 'main-drop-zone') {
+                elements.dragHint.classList.add('hidden');
+            }
+            
+            const type = zone.dataset.type;
+            
+            if (type === 'jpg') {
+                selectJpgDir(appState.jpgDir);
+            } else if (type === 'raw') {
+                selectRawDir(appState.rawDir);
+            } else if (type === 'dest') {
+                selectDestDir(appState.destDir);
+            } else if (type === 'multi') {
+                (async () => {
+                    await selectJpgDir(appState.jpgDir);
+                    await selectRawDir(appState.rawDir);
+                    await selectDestDir(appState.destDir);
+                })();
+            }
+        });
+    });
+}
+
 document.getElementById('btn-select-jpg').addEventListener('click', selectJpgDir);
 document.getElementById('btn-select-raw').addEventListener('click', selectRawDir);
 document.getElementById('btn-select-dest').addEventListener('click', selectDestDir);
 document.getElementById('btn-shutdown').addEventListener('click', shutdownServer);
-
-elements.selectRawExt.addEventListener('change', (e) => {
-    const selectedText = e.target.value;
-    appState.rawExt = selectedText.split(' ')[0].trim();
-    apiRequest('/set_raw_ext', 'POST', { ext: appState.rawExt });
-});
 
 document.getElementById('btn-prev').addEventListener('click', goPrev);
 document.getElementById('btn-pass').addEventListener('click', markPass);
@@ -349,7 +417,6 @@ elements.btnCloseResult.addEventListener('click', () => {
     elements.resultModal.classList.add('hidden');
 });
 
-// 键盘快捷键
 document.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
@@ -502,15 +569,5 @@ document.addEventListener('mouseup', () => {
     }
 });
 
-// 心跳机制：定期发送请求保持服务器活跃
-function startHeartbeat() {
-    // 每5秒发送一次心跳（保证在10秒超时前有请求）
-    setInterval(() => {
-        // 发送一个轻量级请求
-        fetch(`${API_BASE}/get_images`).catch(() => {});
-    }, 5000);
-}
-
-// 初始化
+setupDragAndDrop();
 refreshState();
-startHeartbeat();

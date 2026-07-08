@@ -1,47 +1,29 @@
 #!/usr/bin/env python3
 """
-相机照片极速筛选工具 v2.2
-支持两种启动模式：
-- tkinter GUI 和 Web（网页版
-修改 MODE 变量选择启动模式：
-- 'tkinter' - 使用传统桌面应用
-- 'web' - 使用Web网页版
+相机照片极速筛选工具 v2.2 (Web版)
 """
 import os
 import sys
 import subprocess
 import time
+import webbrowser
+import threading
 
-# ========== 关键：PyInstaller 多进程修复 ==========
 if sys.platform.startswith('win'):
     import multiprocessing
     multiprocessing.freeze_support()
 
-# ========== 路径处理 ==========
+
 def get_base_path():
     if getattr(sys, 'frozen', False):
         return sys._MEIPASS
     return os.path.dirname(os.path.abspath(__file__))
 
+
 BASE_PATH = get_base_path()
-
-# ================== 配置启动模式 ==================
-# 修改这里切换模式：'tkinter' 或 'web'
-MODE = 'web'  # 默认使用 Web 版
-
-
-def run_tkinter():
-    """运行tkinter版本"""
-    import tkinter as tk
-    from tkinter_app.app import ImageCullerApp
-
-    root = tk.Tk()
-    app = ImageCullerApp(root)
-    root.mainloop()
 
 
 def kill_port_process(port=5000):
-    """杀死占用指定端口的进程（Windows），但不杀自己"""
     try:
         current_pid = str(os.getpid())
         result = subprocess.run(
@@ -64,36 +46,29 @@ def kill_port_process(port=5000):
 
 
 def run_web():
-    """运行Web版本"""
     print("正在检查并清理旧进程...")
     kill_port_process(5000)
-    
+
     from web_app.backend import ImageCullerBackend
-    import webbrowser
-    import threading
 
     web_dir = os.path.join(BASE_PATH, 'web_app')
     os.chdir(web_dir)
 
     backend = ImageCullerBackend()
-    
+
     def open_browser():
         time.sleep(1)
         webbrowser.open('http://127.0.0.1:5000')
-    
+
     threading.Thread(target=open_browser, daemon=True).start()
-    
+
     print("=" * 50)
     print("Web版本已启动！")
     print("请在浏览器中访问: http://127.0.0.1:5000")
     print("=" * 50)
-    
+
     backend.run(host='127.0.0.1', port=5000, debug=False)
 
 
 if __name__ == "__main__":
-    print(f"正在启动 {MODE} 版本...")
-    if MODE == 'tkinter':
-        run_tkinter()
-    elif MODE == 'web':
-        run_web()
+    run_web()
