@@ -1,12 +1,12 @@
 @echo off
 echo =========================================
-echo 正在打包相机照片极速筛选工具(Web版)...
+echo 正在打包相机照片极速筛选工具(Qt版)...
 echo =========================================
 
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 
-pyinstaller 相机照片筛选工具(Web版).spec
+pyinstaller 相机照片筛选工具(Qt版).spec
 
 echo.
 echo =========================================

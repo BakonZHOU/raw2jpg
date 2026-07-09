@@ -1,8 +1,6 @@
 """文件服务模块 - 处理文件夹选择和文件操作"""
 import os
 import shutil
-import tkinter as tk
-from tkinter import filedialog
 
 
 class FileService:
@@ -18,7 +16,7 @@ class FileService:
         '.DNG',
         '.X3F'
     ]
-    
+
     def __init__(self):
         self.jpg_dir = ""
         self.raw_dir = ""
@@ -28,35 +26,6 @@ class FileService:
         self.current_idx = 0
         self.states = {}
         self.last_browse_dir = os.path.expanduser("~")
-    
-    def extract_parent_dir_from_file(self, file_path):
-        """从文件路径提取父目录"""
-        if not file_path or not os.path.exists(file_path):
-            return None
-        
-        if os.path.isdir(file_path):
-            return file_path
-        
-        return os.path.dirname(file_path)
-
-    def browse_folder(self, initial_path=None):
-        """打开原生文件选择器选择文件夹"""
-        try:
-            root = tk.Tk()
-            root.withdraw()
-            root.attributes('-topmost', True)
-
-            folder_path = filedialog.askdirectory(
-                title="请选择文件夹",
-                initialdir=initial_path if initial_path else self.last_browse_dir
-            )
-
-            root.destroy()
-            if folder_path:
-                self.last_browse_dir = os.path.dirname(folder_path)
-            return folder_path if folder_path else None
-        except Exception as e:
-            raise Exception(f"选择文件夹失败: {e}")
 
     def validate_folder(self, folder_path):
         """验证文件夹路径是否有效"""
@@ -76,31 +45,28 @@ class FileService:
         """自动检测RAW目录中的文件后缀"""
         if not self.raw_dir or not os.path.exists(self.raw_dir):
             return None
-        
+
         try:
             files = os.listdir(self.raw_dir)
-            # 统计每种后缀的数量
             ext_count = {}
             for f in files:
                 ext = os.path.splitext(f)[1].upper()
                 if ext in FileService.RAW_EXTENSIONS or ext.lower() in [e.lower() for e in FileService.RAW_EXTENSIONS]:
                     ext_count[ext] = ext_count.get(ext, 0) + 1
-            
+
             if ext_count:
-                # 返回数量最多的后缀
                 sorted_exts = sorted(ext_count.items(), key=lambda x: x[1], reverse=True)
                 return sorted_exts[0][0]
             return None
         except Exception as e:
             print(f"自动识别RAW后缀失败: {e}")
             return None
-    
+
     def set_raw_dir(self, folder_path):
         """设置RAW目录并自动识别后缀"""
         if not self.validate_folder(folder_path):
             return False
         self.raw_dir = folder_path
-        # 自动识别后缀
         detected = self.auto_detect_raw_ext()
         if detected:
             self.raw_ext = detected
@@ -158,7 +124,7 @@ class FileService:
                 try:
                     shutil.copy2(src_path, dest_path)
                     success_count += 1
-                except Exception as e:
+                except Exception:
                     missing_files.append(real_raw_name)
             else:
                 missing_files.append(base_name + self.raw_ext)
