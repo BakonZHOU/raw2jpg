@@ -130,8 +130,26 @@ class ThumbnailButton(QToolButton):
         self.clicked.connect(lambda: self.owner.go_to(index))
 
     def _calc_square_metrics(self):
-        viewport = self.owner.thumbnail_scroll.viewport().size()
-        size = max(80, min(160, viewport.height() - 20))
+        scroll_height = self.owner.thumbnail_scroll.size().height()
+        viewport_height = self.owner.thumbnail_scroll.viewport().height()
+
+        effective_height = max(scroll_height, viewport_height)
+
+        if effective_height <= 20:
+            splitter_sizes = self.owner.main_splitter.sizes()
+            if len(splitter_sizes) > 1:
+                effective_height = splitter_sizes[1]
+
+        if effective_height <= 20:
+            window_height = self.owner.window.height()
+            path_bar_height = self.owner.path_bar.height() if self.owner.path_bar else 50
+            available = window_height - path_bar_height
+            effective_height = available * 0.25
+
+        if effective_height <= 20:
+            effective_height = 200
+
+        size = max(80, min(160, effective_height - 20))
         self.thumbnail_button_size = QSize(size, size)
         self.thumbnail_icon_size = QSize(size - 6, size - 6)
 
@@ -181,8 +199,9 @@ class ThumbnailButton(QToolButton):
         painter.translate(-center_x, -center_y)
 
         max_scale = 1.07
-        padding = int(self.rect().width() * (max_scale - 1) / 2) + 2
-        rect = self.rect().adjusted(padding, padding, -padding, -padding)
+        base_padding = int(self.rect().width() * (max_scale - 1) / 2) + 1
+        top_padding = base_padding + 3
+        rect = self.rect().adjusted(base_padding, top_padding, -base_padding, -base_padding)
         path = QPainterPath()
         path.addRoundedRect(rect, 8, 8)
 
@@ -258,6 +277,11 @@ class PhotoCullerApp(QObject):
         self.pixmap_cache: dict[str, QPixmap] = {}
         self._thumb_buttons: dict[int, ThumbnailButton] = {}
         self._viewport_refresh_timer = QTimer(self)
+        self._full_preview_mode = False
+        self._full_preview_container = None
+        self._full_preview_left = None
+        self._full_preview_center = None
+        self._full_preview_right = None
         self._viewport_refresh_timer.setSingleShot(True)
         self._viewport_refresh_timer.setInterval(50)
         self._viewport_refresh_timer.timeout.connect(self.refresh_visible_views)
@@ -331,6 +355,12 @@ class PhotoCullerApp(QObject):
         self.main_image_scroll.raise_()
         self.main_placeholder.raise_()
 
+        self.thumbnail_scroll.setMinimumHeight(100)
+        self.update_thumbnail_max_height()
+
+        self.thumbnail_layout.setSpacing(6)
+        self.thumbnail_layout.setContentsMargins(8, 12, 8, 8)
+
 
     def install_filters(self):
         self.filter = DropEventFilter(self)
@@ -346,8 +376,11 @@ class PhotoCullerApp(QObject):
         self.btn_select_dest.clicked.connect(self.select_dest_dir)
         self.main_splitter.setSizes([760, 220])
         self.main_splitter.setHandleWidth(5)
-        # 实时响应分割器拖动
-        self.main_splitter.splitterMoved.connect(self.schedule_viewport_refresh)
+        self.main_splitter.splitterMoved.connect(self.on_splitter_moved)
+
+    def on_splitter_moved(self, pos, index):
+        self.schedule_viewport_refresh()
+        self.check_full_preview_mode()
 
     def setup_shortcuts(self):
         shortcuts = [
@@ -425,6 +458,23 @@ class PhotoCullerApp(QObject):
             QScrollArea#thumbnailScroll {
                 background: #222222;
                 border: 0px;
+            }
+            QScrollBar:horizontal {
+                height: 6px;
+                background: #1a1a1a;
+                margin: 0px;
+                border-radius: 3px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #444444;
+                border-radius: 3px;
+                min-width: 20px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #555555;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                height: 0px;
             }
             QWidget#thumbnailContent {
                 background: #222222;
@@ -569,11 +619,17 @@ class PhotoCullerApp(QObject):
         self.lbl_jpg_path.setText(os.path.basename(state.get("jpg_dir", "")) or "[未选择]")
         self.lbl_raw_path.setText(os.path.basename(state.get("raw_dir", "")) or "[未选择]")
         self.lbl_dest_path.setText(os.path.basename(state.get("dest_dir", "")) or "[未选择]")
-        self.update_view()
+
+        self.window.update()
+        self.window.repaint()
+        QTimer.singleShot(50, self.update_view)
 
     def update_view(self):
         self.update_info_bar()
-        self.refresh_main_image()
+        if self._full_preview_mode:
+            self.refresh_full_preview()
+        else:
+            self.refresh_main_image()
         self.refresh_thumbnails()
 
     def update_info_bar(self):
@@ -586,9 +642,26 @@ class PhotoCullerApp(QObject):
         self.info_label.setText(f"{current_file}  |  当前第 {self.current_idx + 1} 张 / 总共 {total} 张  |  已入选：{pass_count} 张")
 
     def _calc_thumbnail_metrics(self):
-        # 正方形缩略图尺寸
-        viewport = self.thumbnail_scroll.viewport().size()
-        size = max(80, min(160, viewport.height() - 20))
+        scroll_height = self.thumbnail_scroll.size().height()
+        viewport_height = self.thumbnail_scroll.viewport().height()
+
+        effective_height = max(scroll_height, viewport_height)
+
+        if effective_height <= 20:
+            splitter_sizes = self.main_splitter.sizes()
+            if len(splitter_sizes) > 1:
+                effective_height = splitter_sizes[1]
+
+        if effective_height <= 20:
+            window_height = self.window.height()
+            path_bar_height = self.path_bar.height() if self.path_bar else 50
+            available = window_height - path_bar_height
+            effective_height = available * 0.25
+
+        if effective_height <= 20:
+            effective_height = 200
+
+        size = max(80, min(160, effective_height - 20))
         self.thumbnail_button_size = QSize(size, size)
         self.thumbnail_icon_size = QSize(size - 4, size - 4)
 
@@ -709,6 +782,8 @@ class PhotoCullerApp(QObject):
         )
 
     def refresh_thumbnails(self):
+        self._calc_thumbnail_metrics()
+
         if not self.image_files:
             while self.thumbnail_layout.count():
                 item = self.thumbnail_layout.takeAt(0)
@@ -738,16 +813,20 @@ class PhotoCullerApp(QObject):
             self.thumbnail_layout.addItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
         else:
             for idx in range(len(self.image_files)):
-                filename = self.image_files[idx]
-                status = 2 if idx == self.current_idx else self.states.get(filename, 0)
                 button = self._thumb_buttons.get(idx)
                 if button:
+                    button._calc_square_metrics()
+                    button.setFixedSize(self.thumbnail_button_size)
+                    button.setIconSize(self.thumbnail_icon_size)
+
+                    filename = self.image_files[idx]
+                    status = 2 if idx == self.current_idx else self.states.get(filename, 0)
                     new_status_name = button._status_name(status)
                     if button.property("status") != new_status_name:
                         button.setProperty("status", new_status_name)
                         button.style().unpolish(button)
                         button.style().polish(button)
-                        button.update()
+                    button.update()
 
         QTimer.singleShot(0, self.scroll_current_thumbnail_into_view)
 
@@ -861,8 +940,148 @@ class PhotoCullerApp(QObject):
     def open_zoom_dialog(self):
         return
 
+    def update_thumbnail_max_height(self):
+        max_thumb_size = 160
+        top_margin, bottom_margin = 12, 8
+        padding_for_hover = 12
+        max_height = max_thumb_size + top_margin + bottom_margin + padding_for_hover
+        self.thumbnail_scroll.setMaximumHeight(max_height)
+
+    def check_full_preview_mode(self):
+        if not self.image_files:
+            return
+
+        max_thumb_size = 160
+        top_margin, bottom_margin = 12, 8
+        padding_for_hover = 12
+        normal_max_height = max_thumb_size + top_margin + bottom_margin + padding_for_hover
+        full_trigger_height = normal_max_height * 2
+
+        sizes = self.main_splitter.sizes()
+        thumb_height = sizes[1] if len(sizes) > 1 else 0
+
+        if thumb_height > full_trigger_height and not self._full_preview_mode:
+            self.enter_full_preview_mode()
+        elif thumb_height < normal_max_height and self._full_preview_mode:
+            self.exit_full_preview_mode()
+
+    def enter_full_preview_mode(self):
+        self._full_preview_mode = True
+
+        self.main_image_scroll.hide()
+        self.main_placeholder.hide()
+
+        self._full_preview_container = QWidget(self.main_drop_zone)
+        self._full_preview_container.setObjectName("fullPreviewContainer")
+        layout = QHBoxLayout(self._full_preview_container)
+        layout.setSpacing(0)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self._full_preview_left = QLabel(self._full_preview_container)
+        self._full_preview_left.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._full_preview_left.setStyleSheet("background: #000000;")
+
+        self._full_preview_center = QLabel(self._full_preview_container)
+        self._full_preview_center.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._full_preview_center.setStyleSheet("background: #000000;")
+
+        self._full_preview_right = QLabel(self._full_preview_container)
+        self._full_preview_right.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._full_preview_right.setStyleSheet("background: #000000;")
+
+        layout.addWidget(self._full_preview_left)
+        layout.addWidget(self._full_preview_center)
+        layout.addWidget(self._full_preview_right)
+
+        self._full_preview_left.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._full_preview_center.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._full_preview_right.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        drop_layout = self.main_drop_zone.layout()
+        drop_layout.addWidget(self._full_preview_container, 0, 0)
+        self._full_preview_container.show()
+
+        self.thumbnail_scroll.setMaximumHeight(16777215)
+
+        self.refresh_full_preview()
+
+    def exit_full_preview_mode(self):
+        self._full_preview_mode = False
+
+        if self._full_preview_container:
+            self._full_preview_container.deleteLater()
+            self._full_preview_container = None
+            self._full_preview_left = None
+            self._full_preview_center = None
+            self._full_preview_right = None
+
+        self.update_thumbnail_max_height()
+
+        if self.current_main_pixmap.isNull():
+            self.main_placeholder.show()
+        else:
+            self.main_image_scroll.show()
+
+    def refresh_full_preview(self):
+        if not self._full_preview_mode or not self.image_files:
+            return
+
+        container_size = self._full_preview_container.size()
+        if container_size.width() <= 0 or container_size.height() <= 0:
+            return
+
+        center_width = container_size.width() // 2
+        side_width = (container_size.width() - center_width) // 2
+        height = container_size.height()
+
+        self._update_full_preview_label(self._full_preview_left, self.current_idx - 1, side_width, height, True)
+        self._update_full_preview_label(self._full_preview_center, self.current_idx, center_width, height, False)
+        self._update_full_preview_label(self._full_preview_right, self.current_idx + 1, side_width, height, False)
+
+    def _update_full_preview_label(self, label, idx, width, height, is_left):
+        if idx < 0 or idx >= len(self.image_files):
+            label.clear()
+            label.setText("")
+            return
+
+        filename = self.image_files[idx]
+        path = str(Path(self.file_service.jpg_dir) / filename)
+        pixmap = self._load_pixmap(path)
+
+        if pixmap.isNull():
+            label.clear()
+            label.setText("")
+            return
+
+        scale_factor = min(width / pixmap.width(), height / pixmap.height())
+        scaled_height = int(pixmap.height() * scale_factor)
+        scaled_width = int(pixmap.width() * scale_factor)
+
+        scaled = pixmap.scaled(scaled_width, scaled_height, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+
+        if scaled_width > width:
+            if is_left:
+                source_rect = QRect(scaled_width - width, 0, width, scaled_height)
+            else:
+                source_rect = QRect(0, 0, width, scaled_height)
+            clipped = scaled.copy(source_rect)
+            label.setPixmap(clipped)
+        else:
+            label.setPixmap(scaled)
+
+        status = self.states.get(filename, 0)
+        border_color = "#00bcd4" if status == 2 else "#4caf50" if status == 1 else "#f44336" if status == -1 else "#333333"
+        label.setStyleSheet(f"background: #000000; border: 3px solid {border_color};")
+
     def run(self):
         self.window.show()
+        original_resize = self.window.resizeEvent
+        def custom_resize(event):
+            self.update_thumbnail_max_height()
+            if self._full_preview_mode:
+                self.refresh_full_preview()
+            original_resize(event)
+        self.window.resizeEvent = custom_resize
         return self.app.exec()
 
 
