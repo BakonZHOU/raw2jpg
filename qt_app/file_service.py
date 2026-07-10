@@ -4,7 +4,6 @@ import shutil
 
 
 class FileService:
-    # 常见 RAW 格式列表（优先级从高到低）
     RAW_EXTENSIONS = [
         '.CR3', '.CR2', '.CRW',
         '.NEF', '.NRW',
@@ -16,6 +15,7 @@ class FileService:
         '.DNG',
         '.X3F'
     ]
+    RAW_EXTENSIONS_LOWER = {e.lower() for e in RAW_EXTENSIONS}
 
     def __init__(self):
         self.jpg_dir = ""
@@ -51,12 +51,11 @@ class FileService:
             ext_count = {}
             for f in files:
                 ext = os.path.splitext(f)[1].upper()
-                if ext in FileService.RAW_EXTENSIONS or ext.lower() in [e.lower() for e in FileService.RAW_EXTENSIONS]:
+                if ext.lower() in FileService.RAW_EXTENSIONS_LOWER:
                     ext_count[ext] = ext_count.get(ext, 0) + 1
 
             if ext_count:
-                sorted_exts = sorted(ext_count.items(), key=lambda x: x[1], reverse=True)
-                return sorted_exts[0][0]
+                return max(ext_count, key=ext_count.get)
             return None
         except Exception as e:
             print(f"自动识别RAW后缀失败: {e}")

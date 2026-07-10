@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from collections import OrderedDict
 from pathlib import Path
 
 # 确保可以找到 qt_app 模块
@@ -16,7 +17,7 @@ BASE_PATH = get_base_path()
 if BASE_PATH not in sys.path:
     sys.path.insert(0, BASE_PATH)
 
-from PySide6.QtCore import QFile, QObject, QEvent, Qt, QTimer, QSize, QPoint, Property, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import QFile, QObject, QEvent, Qt, QTimer, QSize, QPoint, QRect, Property, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QColor, QIcon, QKeySequence, QPixmap, QPalette, QShortcut, QCursor, QPainter, QPainterPath, QBrush, QPen
 from PySide6.QtWidgets import (
     QApplication,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QMessageBox,
     QPlainTextEdit,
@@ -42,7 +44,6 @@ from qt_app.file_service import FileService
 
 
 UI_PATH = Path(__file__).resolve().parent / "ui" / "main_window.ui"
-MEMO_PATH = Path(__file__).resolve().parent / "operation_memo.txt"
 
 
 class DropEventFilter(QObject):
@@ -130,28 +131,9 @@ class ThumbnailButton(QToolButton):
         self.clicked.connect(lambda: self.owner.go_to(index))
 
     def _calc_square_metrics(self):
-        scroll_height = self.owner.thumbnail_scroll.size().height()
-        viewport_height = self.owner.thumbnail_scroll.viewport().height()
-
-        effective_height = max(scroll_height, viewport_height)
-
-        if effective_height <= 20:
-            splitter_sizes = self.owner.main_splitter.sizes()
-            if len(splitter_sizes) > 1:
-                effective_height = splitter_sizes[1]
-
-        if effective_height <= 20:
-            window_height = self.owner.window.height()
-            path_bar_height = self.owner.path_bar.height() if self.owner.path_bar else 50
-            available = window_height - path_bar_height
-            effective_height = available * 0.25
-
-        if effective_height <= 20:
-            effective_height = 200
-
-        size = max(80, min(160, effective_height - 20))
-        self.thumbnail_button_size = QSize(size, size)
-        self.thumbnail_icon_size = QSize(size - 6, size - 6)
+        self.owner._calc_thumbnail_metrics()
+        self.thumbnail_button_size = self.owner.thumbnail_button_size
+        self.thumbnail_icon_size = self.owner.thumbnail_icon_size
 
     def _status_name(self, status: int) -> str:
         if status == 2:
@@ -274,7 +256,8 @@ class PhotoCullerApp(QObject):
         self.current_main_pixmap = QPixmap()
         self.main_fit_factor = 1.0
         self.main_zoom_ratio = 1.0
-        self.pixmap_cache: dict[str, QPixmap] = {}
+        self.pixmap_cache: OrderedDict[str, QPixmap] = OrderedDict()
+        self._max_cache_size = 80
         self._thumb_buttons: dict[int, ThumbnailButton] = {}
         self._viewport_refresh_timer = QTimer(self)
         self._full_preview_mode = False
@@ -286,7 +269,6 @@ class PhotoCullerApp(QObject):
         self._viewport_refresh_timer.setInterval(50)
         self._viewport_refresh_timer.timeout.connect(self.refresh_visible_views)
         self.last_browse_dir = os.path.expanduser("~")
-        self.operation_memo = self.read_operation_memo()
 
         self.window = self.load_window()
         self.load_widgets()
@@ -295,12 +277,6 @@ class PhotoCullerApp(QObject):
         self.apply_styles()
         self.setup_shortcuts()
         self.refresh_state()
-
-    def read_operation_memo(self):
-        try:
-            return MEMO_PATH.read_text(encoding="utf-8")
-        except Exception:
-            return ""
 
     def load_window(self):
         loader = QUiLoader()
@@ -518,7 +494,6 @@ class PhotoCullerApp(QObject):
         paths = self.extract_paths_from_mime(mime_data)
         if not paths:
             return
-        self.operation_memo = self.read_operation_memo()
         if widget in (self.main_drop_zone, self.main_image, self.main_placeholder):
             self.apply_paths_in_order(paths)
             return
@@ -560,31 +535,22 @@ class PhotoCullerApp(QObject):
         return None
 
     def select_jpg_dir(self):
-        self.operation_memo = self.read_operation_memo()
         directory = self.choose_directory("请选择JPG文件夹", self.file_service.jpg_dir)
         if directory:
             self.apply_jpg_dir(directory)
 
     def select_raw_dir(self):
-        self.operation_memo = self.read_operation_memo()
         directory = self.choose_directory("请选择RAW文件夹", self.file_service.raw_dir)
         if directory:
             self.apply_raw_dir(directory)
 
     def select_dest_dir(self):
-        self.operation_memo = self.read_operation_memo()
         directory = self.choose_directory("请选择导出文件夹", self.file_service.dest_dir)
         if directory:
             self.apply_dest_dir(directory)
 
-    def normalize_dropped_directory(self, path: str):
-        if not path:
-            return path
-        return path if os.path.isdir(path) else os.path.dirname(path)
-
     def apply_jpg_dir(self, directory: str):
-        self.operation_memo = self.read_operation_memo()
-        directory = self.normalize_dropped_directory(directory)
+        directory = directory if os.path.isdir(directory) else os.path.dirname(directory)
         if self.file_service.set_jpg_dir(directory):
             self.lbl_jpg_path.setText(os.path.basename(directory))
             self.refresh_state()
@@ -592,8 +558,7 @@ class PhotoCullerApp(QObject):
             QMessageBox.warning(self.window, "提示", "路径无效，请检查后重试")
 
     def apply_raw_dir(self, directory: str):
-        self.operation_memo = self.read_operation_memo()
-        directory = self.normalize_dropped_directory(directory)
+        directory = directory if os.path.isdir(directory) else os.path.dirname(directory)
         if self.file_service.set_raw_dir(directory):
             self.lbl_raw_path.setText(os.path.basename(directory))
             self.raw_ext = self.file_service.raw_ext
@@ -602,8 +567,7 @@ class PhotoCullerApp(QObject):
             QMessageBox.warning(self.window, "提示", "路径无效，请检查后重试")
 
     def apply_dest_dir(self, directory: str):
-        self.operation_memo = self.read_operation_memo()
-        directory = self.normalize_dropped_directory(directory)
+        directory = directory if os.path.isdir(directory) else os.path.dirname(directory)
         if self.file_service.set_dest_dir(directory):
             self.lbl_dest_path.setText(os.path.basename(directory))
         else:
@@ -638,7 +602,7 @@ class PhotoCullerApp(QObject):
             return
         current_file = self.image_files[self.current_idx]
         total = len(self.image_files)
-        pass_count = len([v for v in self.states.values() if v == 1])
+        pass_count = sum(1 for v in self.states.values() if v == 1)
         self.info_label.setText(f"{current_file}  |  当前第 {self.current_idx + 1} 张 / 总共 {total} 张  |  已入选：{pass_count} 张")
 
     def _calc_thumbnail_metrics(self):
@@ -663,14 +627,17 @@ class PhotoCullerApp(QObject):
 
         size = max(80, min(160, effective_height - 20))
         self.thumbnail_button_size = QSize(size, size)
-        self.thumbnail_icon_size = QSize(size - 4, size - 4)
+        self.thumbnail_icon_size = QSize(size - 6, size - 6)
 
     def _load_pixmap(self, path: str) -> QPixmap:
-        pixmap = self.pixmap_cache.get(path)
-        if pixmap is None:
-            pixmap = QPixmap(path)
-            if not pixmap.isNull():
-                self.pixmap_cache[path] = pixmap
+        if path in self.pixmap_cache:
+            self.pixmap_cache.move_to_end(path)
+            return self.pixmap_cache[path]
+        pixmap = QPixmap(path)
+        if not pixmap.isNull():
+            self.pixmap_cache[path] = pixmap
+            if len(self.pixmap_cache) > self._max_cache_size:
+                self.pixmap_cache.popitem(last=False)
         return pixmap if pixmap is not None else QPixmap()
 
     def schedule_viewport_refresh(self):
@@ -831,20 +798,11 @@ class PhotoCullerApp(QObject):
         QTimer.singleShot(0, self.scroll_current_thumbnail_into_view)
 
     def scroll_current_thumbnail_into_view(self):
-        current_button = None
-        for i in range(self.thumbnail_layout.count()):
-            widget = self.thumbnail_layout.itemAt(i).widget()
-            if isinstance(widget, ThumbnailButton) and widget.index == self.current_idx:
-                current_button = widget
-                break
+        current_button = self._thumb_buttons.get(self.current_idx)
         if current_button is not None:
             self.thumbnail_scroll.ensureWidgetVisible(current_button)
 
-    def refresh_viewports(self):
-        self.refresh_visible_views()
-
     def mark_pass(self):
-        self.operation_memo = self.read_operation_memo()
         result = self.file_service.mark_pass()
         if result:
             self.current_idx = self.file_service.current_idx
@@ -852,7 +810,6 @@ class PhotoCullerApp(QObject):
             self.update_view()
 
     def mark_reject(self):
-        self.operation_memo = self.read_operation_memo()
         result = self.file_service.mark_reject()
         if result:
             self.current_idx = self.file_service.current_idx
@@ -860,7 +817,6 @@ class PhotoCullerApp(QObject):
             self.update_view()
 
     def undo(self):
-        self.operation_memo = self.read_operation_memo()
         result = self.file_service.undo()
         if result:
             self.current_idx = self.file_service.current_idx
@@ -868,14 +824,12 @@ class PhotoCullerApp(QObject):
             self.update_view()
 
     def go_prev(self):
-        self.operation_memo = self.read_operation_memo()
         result = self.file_service.go_prev()
         if result:
             self.current_idx = self.file_service.current_idx
             self.update_view()
 
     def go_next(self):
-        self.operation_memo = self.read_operation_memo()
         if not self.image_files:
             return
         if self.current_idx < len(self.image_files) - 1:
@@ -900,7 +854,6 @@ class PhotoCullerApp(QObject):
         self._confirm_next_count = 1
 
     def go_to(self, idx: int):
-        self.operation_memo = self.read_operation_memo()
         result = self.file_service.go_to(idx)
         if result:
             self.current_idx = self.file_service.current_idx
@@ -916,7 +869,6 @@ class PhotoCullerApp(QObject):
             self.execute_copy()
 
     def execute_copy(self):
-        self.operation_memo = self.read_operation_memo()
         try:
             result = self.file_service.copy_raw_files()
         except Exception as exc:
@@ -936,9 +888,6 @@ class PhotoCullerApp(QObject):
             self.refresh_state()
         else:
             QMessageBox.critical(self.window, "复制失败", result.get("error", "复制失败"))
-
-    def open_zoom_dialog(self):
-        return
 
     def update_thumbnail_max_height(self):
         max_thumb_size = 160
