@@ -174,20 +174,28 @@ class ThumbnailButton(QToolButton):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
 
-        rect = self.rect().adjusted(1, 1, -1, -1)
+        center_x = self.rect().width() / 2
+        center_y = self.rect().height() / 2
+        painter.translate(center_x, center_y)
+        painter.scale(self._hover_scale, self._hover_scale)
+        painter.translate(-center_x, -center_y)
+
+        max_scale = 1.07
+        padding = int(self.rect().width() * (max_scale - 1) / 2) + 2
+        rect = self.rect().adjusted(padding, padding, -padding, -padding)
         path = QPainterPath()
         path.addRoundedRect(rect, 8, 8)
-        painter.setClipPath(path)
 
         bg = QColor("#111111")
         if self.property("status") == "current":
             bg = QColor("#222222")
         painter.fillPath(path, bg)
+        painter.setClipPath(path)
 
         if not self._thumb_pixmap.isNull():
             scaled = self._thumb_pixmap.scaled(
-                int(rect.width() * self._hover_scale),
-                int(rect.height() * self._hover_scale),
+                rect.width(),
+                rect.height(),
                 Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                 Qt.TransformationMode.SmoothTransformation,
             )
@@ -248,6 +256,7 @@ class PhotoCullerApp(QObject):
         self.main_fit_factor = 1.0
         self.main_zoom_ratio = 1.0
         self.pixmap_cache: dict[str, QPixmap] = {}
+        self._thumb_buttons: dict[int, ThumbnailButton] = {}
         self._viewport_refresh_timer = QTimer(self)
         self._viewport_refresh_timer.setSingleShot(True)
         self._viewport_refresh_timer.setInterval(50)
@@ -421,20 +430,10 @@ class PhotoCullerApp(QObject):
                 background: #222222;
             }
             QToolButton[thumbnail="true"] {
-                background: #111111;
-                border: 2px solid transparent;
-                border-radius: 6px;
-                padding: 2px;
-            }
-            QToolButton[thumbnail="true"][status="pass"] {
-                border-color: #4caf50;
-            }
-            QToolButton[thumbnail="true"][status="reject"] {
-                border-color: #f44336;
-            }
-            QToolButton[thumbnail="true"][status="current"] {
-                border-color: #00bcd4;
-                background: #222222;
+                background: transparent;
+                border: none;
+                border-radius: 0px;
+                padding: 0px;
             }
             QPushButton {
                 background: #444444;
@@ -709,34 +708,47 @@ class PhotoCullerApp(QObject):
             Qt.TransformationMode.SmoothTransformation,
         )
 
-    def clear_thumbnails(self):
-        while self.thumbnail_layout.count():
-            item = self.thumbnail_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-
     def refresh_thumbnails(self):
-        self.clear_thumbnails()
         if not self.image_files:
+            while self.thumbnail_layout.count():
+                item = self.thumbnail_layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
+            self._thumb_buttons.clear()
             return
 
-        visible_count = 15
-        half_visible = visible_count // 2
-        start_idx = max(0, self.current_idx - half_visible)
-        end_idx = min(len(self.image_files), start_idx + visible_count)
-        if end_idx - start_idx < visible_count and start_idx > 0:
-            start_idx = max(0, end_idx - visible_count)
+        need_rebuild = len(self._thumb_buttons) != len(self.image_files)
+        if need_rebuild:
+            while self.thumbnail_layout.count():
+                item = self.thumbnail_layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
+            self._thumb_buttons.clear()
 
-        for idx in range(start_idx, end_idx):
-            filename = self.image_files[idx]
-            status = 2 if idx == self.current_idx else self.states.get(filename, 0)
-            button = ThumbnailButton(self, idx, filename, status)
-            button.setFixedSize(self.thumbnail_button_size)
-            button.setIconSize(self.thumbnail_icon_size)
-            self.thumbnail_layout.addWidget(button)
+            for idx, filename in enumerate(self.image_files):
+                status = 2 if idx == self.current_idx else self.states.get(filename, 0)
+                button = ThumbnailButton(self, idx, filename, status)
+                button.setFixedSize(self.thumbnail_button_size)
+                button.setIconSize(self.thumbnail_icon_size)
+                self.thumbnail_layout.addWidget(button)
+                self._thumb_buttons[idx] = button
 
-        self.thumbnail_layout.addItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+            self.thumbnail_layout.addItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+        else:
+            for idx in range(len(self.image_files)):
+                filename = self.image_files[idx]
+                status = 2 if idx == self.current_idx else self.states.get(filename, 0)
+                button = self._thumb_buttons.get(idx)
+                if button:
+                    new_status_name = button._status_name(status)
+                    if button.property("status") != new_status_name:
+                        button.setProperty("status", new_status_name)
+                        button.style().unpolish(button)
+                        button.style().polish(button)
+                        button.update()
+
         QTimer.singleShot(0, self.scroll_current_thumbnail_into_view)
 
     def scroll_current_thumbnail_into_view(self):
