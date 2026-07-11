@@ -602,7 +602,7 @@ class PhotoCullerApp(QObject):
             return
         current_file = self.image_files[self.current_idx]
         total = len(self.image_files)
-        pass_count = sum(1 for v in self.states.values() if v == 1)
+        pass_count = sum(1 for v in self.states.values() if v == 1)  #改
         self.info_label.setText(f"{current_file}  |  当前第 {self.current_idx + 1} 张 / 总共 {total} 张  |  已入选：{pass_count} 张")
 
     def _calc_thumbnail_metrics(self):
