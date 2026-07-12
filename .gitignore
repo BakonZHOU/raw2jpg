@@ -26,12 +26,20 @@ ENV/
 env/
 .venv
 
-# IDE
-.vscode/
-.idea/
+# IDE - 通用
 *.swp
 *.swo
 *~
+
+# IDE - VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# IDE - PyCharm / JetBrains
+.idea/
+*.iml
 
 # OS
 .DS_Store
@@ -39,3 +47,7 @@ Thumbs.db
 
 # Project specific
 .kagent/
+
+# PyInstaller 打包产物
+*.spec.bak
+*.manifest

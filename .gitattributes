@@ -21,3 +21,16 @@
 
 # Spec文件
 *.spec text eol=lf
+
+# Qt UI 文件
+*.ui text eol=lf
+
+# 批处理文件 Windows CRLF
+*.bat text eol=crlf
+
+# 配置文件
+*.txt text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
