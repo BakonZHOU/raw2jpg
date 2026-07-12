@@ -69,7 +69,7 @@ class FileService:
         self.jpg_dir = ""
         self.raw_dir = ""
         self.dest_dir = ""
-        self.raw_ext = ".CR2"
+        self.raw_ext = ""
         self.image_files = []
         self.current_idx = 0
         self.states = {}
@@ -901,7 +901,7 @@ class PhotoCullerApp(QObject):
         self.image_files: list[str] = []
         self.current_idx = 0
         self.states: dict[str, int] = {}
-        self.raw_ext = ".CR2"
+        self.raw_ext = ""
         self.current_image_path = ""
         self.current_main_pixmap = QPixmap()
         self.main_fit_factor = 1.0
@@ -1169,11 +1169,11 @@ class PhotoCullerApp(QObject):
         self.image_files = state.get("files", []) or []
         self.current_idx = state.get("current_idx", 0) or 0
         self.states = state.get("states", {}) or {}
-        self.raw_ext = state.get("raw_ext", ".CR2") or ".CR2"
+        self.raw_ext = state.get("raw_ext", "") or ""
         self.lbl_raw_ext.setText(self.raw_ext)
-        self.lbl_jpg_path.setText(os.path.basename(state.get("jpg_dir", "")) or "[未选择]")
-        self.lbl_raw_path.setText(os.path.basename(state.get("raw_dir", "")) or "[未选择]")
-        self.lbl_dest_path.setText(os.path.basename(state.get("dest_dir", "")) or "[未选择]")
+        self.lbl_jpg_path.setText(os.path.basename(state.get("jpg_dir", "")) or "")
+        self.lbl_raw_path.setText(os.path.basename(state.get("raw_dir", "")) or "")
+        self.lbl_dest_path.setText(os.path.basename(state.get("dest_dir", "")) or "")
 
         self.window.update()
         self.window.repaint()

@@ -78,14 +78,14 @@
           <item>
            <widget class="QPushButton" name="btnSelectJpg">
             <property name="text">
-             <string>1.导入JPG目录</string>
+             <string>导入JPG目录</string>
             </property>
            </widget>
           </item>
           <item>
            <widget class="QLabel" name="lblJpgPath">
             <property name="text">
-             <string>[未选择]</string>
+             <string></string>
             </property>
             <property name="alignment">
              <set>Qt::AlignVCenter|Qt::AlignLeft</set>
@@ -138,14 +138,14 @@
           <item>
            <widget class="QPushButton" name="btnSelectRaw">
             <property name="text">
-             <string>2.导入RAW目录</string>
+             <string>导入RAW目录</string>
             </property>
            </widget>
           </item>
           <item>
            <widget class="QLabel" name="lblRawPath">
             <property name="text">
-             <string>[未选择]</string>
+             <string></string>
             </property>
             <property name="alignment">
              <set>Qt::AlignVCenter|Qt::AlignLeft</set>
@@ -198,14 +198,14 @@
           <item>
            <widget class="QPushButton" name="btnSelectDest">
             <property name="text">
-             <string>3.确定导出目录</string>
+             <string>确定导出目录</string>
             </property>
            </widget>
           </item>
           <item>
            <widget class="QLabel" name="lblDestPath">
             <property name="text">
-             <string>[未选择]</string>
+             <string></string>
             </property>
             <property name="alignment">
              <set>Qt::AlignVCenter|Qt::AlignLeft</set>
@@ -256,7 +256,7 @@
           <item>
            <widget class="QLabel" name="lblRawExt">
             <property name="text">
-             <string>.CR2</string>
+             <string></string>
             </property>
            </widget>
           </item>
