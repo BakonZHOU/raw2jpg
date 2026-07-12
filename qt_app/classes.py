@@ -6,12 +6,13 @@ import time
 from collections import OrderedDict
 from pathlib import Path
 
-from PySide6.QtCore import QFile, QObject, Qt, QTimer, QSize, QRect, QEvent, QPoint, QPropertyAnimation, QEasingCurve, Property
+from PySide6.QtCore import QFile, QObject, Qt, QTimer, QSize, QEvent, QPoint, QPropertyAnimation, QEasingCurve, Property
 from PySide6.QtGui import QColor, QKeySequence, QPixmap, QPalette, QShortcut, QPainter, QPainterPath, QPen, QCursor
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -135,7 +136,97 @@ class FileService:
             self.pass_count = 0
             raise Exception(f"读取JPG目录失败: {e}")
 
-    def copy_raw_files(self):
+    def check_match(self):
+        if not self.jpg_dir or not self.raw_dir:
+            return {
+                "can_check": False,
+                "jpg_count": len(self.image_files),
+                "raw_count": 0,
+                "missing_raw": [],
+                "extra_raw": [],
+                "match_count": 0
+            }
+
+        try:
+            raw_files_in_dir = os.listdir(self.raw_dir)
+            raw_files = sorted([f for f in raw_files_in_dir if os.path.splitext(f)[1].lower() in FileService.RAW_EXTENSIONS_LOWER])
+        except Exception as e:
+            raise Exception(f"无法读取RAW目录: {e}")
+
+        raw_basenames_lower = {os.path.splitext(f)[0].lower(): f for f in raw_files}
+        jpg_basenames_lower = {os.path.splitext(f)[0].lower(): f for f in self.image_files}
+
+        missing_raw = []
+        extra_raw = []
+        match_count = 0
+
+        for jpg_lower, jpg_name in jpg_basenames_lower.items():
+            if jpg_lower in raw_basenames_lower:
+                match_count += 1
+            else:
+                missing_raw.append(jpg_name)
+
+        for raw_lower, raw_name in raw_basenames_lower.items():
+            if raw_lower not in jpg_basenames_lower:
+                extra_raw.append(raw_name)
+
+        return {
+            "can_check": True,
+            "jpg_count": len(self.image_files),
+            "raw_count": len(raw_files),
+            "missing_raw": sorted(missing_raw),
+            "extra_raw": sorted(extra_raw),
+            "match_count": match_count
+        }
+
+    def write_missing_report(self, missing_files):
+        if not self.raw_dir or not missing_files:
+            return None
+        report_path = os.path.join(self.raw_dir, "缺失RAW文件列表.txt")
+        try:
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write("以下JPG照片在RAW目录中找不到对应的RAW文件：\n")
+                f.write("=" * 50 + "\n")
+                for idx, name in enumerate(missing_files, 1):
+                    f.write(f"{idx}. {name}\n")
+                f.write("=" * 50 + "\n")
+                f.write(f"共计缺失: {len(missing_files)} 个RAW文件\n")
+            return report_path
+        except Exception as e:
+            print(f"写入缺失报告失败: {e}")
+            return None
+
+    def copy_jpg_files(self):
+        if not self.jpg_dir or not self.dest_dir:
+            raise Exception("路径缺失")
+
+        pass_list = [f for f, state in self.states.items() if state == 1]
+        if not pass_list:
+            raise Exception("没有选中任何合格照片")
+
+        if not os.path.exists(self.dest_dir):
+            os.makedirs(self.dest_dir)
+
+        success_count = 0
+        failed_files = []
+
+        for jpg_name in pass_list:
+            src_path = os.path.join(self.jpg_dir, jpg_name)
+            dest_path = os.path.join(self.dest_dir, jpg_name)
+            try:
+                shutil.copy2(src_path, dest_path)
+                success_count += 1
+            except Exception:
+                failed_files.append(jpg_name)
+
+        return {
+            "success": True,
+            "success_count": success_count,
+            "failed_files": failed_files,
+            "mode": "jpg"
+        }
+
+    def copy_raw_files(self, strict: bool = True):
         if not self.raw_dir or not self.dest_dir:
             raise Exception("路径缺失")
 
@@ -171,10 +262,14 @@ class FileService:
             else:
                 missing_files.append(base_name + self.raw_ext)
 
+        if strict and missing_files:
+            self.write_missing_report(missing_files)
+
         return {
             "success": True,
             "success_count": success_count,
-            "missing_files": missing_files
+            "missing_files": missing_files,
+            "mode": "raw"
         }
 
     def get_current_state(self):
@@ -203,6 +298,19 @@ class FileService:
             self.current_idx += 1
         return True
 
+    def mark_pass_at(self, idx):
+        if not self.image_files or idx < 0 or idx >= len(self.image_files):
+            return False
+        filename = self.image_files[idx]
+        prev = self.states.get(filename, 0)
+        self.states[filename] = 1
+        if prev != 1:
+            if prev == 0:
+                self.pass_count += 1
+            elif prev == -1:
+                self.pass_count += 1
+        return True
+
     def mark_reject(self):
         if not self.image_files:
             return False
@@ -213,6 +321,26 @@ class FileService:
             self.pass_count -= 1
         if self.current_idx < len(self.image_files) - 1:
             self.current_idx += 1
+        return True
+
+    def mark_reject_at(self, idx):
+        if not self.image_files or idx < 0 or idx >= len(self.image_files):
+            return False
+        filename = self.image_files[idx]
+        prev = self.states.get(filename, 0)
+        self.states[filename] = -1
+        if prev == 1:
+            self.pass_count -= 1
+        return True
+
+    def reset_state_at(self, idx):
+        if not self.image_files or idx < 0 or idx >= len(self.image_files):
+            return False
+        filename = self.image_files[idx]
+        prev = self.states.get(filename, 0)
+        self.states[filename] = 0
+        if prev == 1:
+            self.pass_count -= 1
         return True
 
     def undo(self):
@@ -291,13 +419,21 @@ class DropEventFilter(QObject):
         if etype == QEvent.MouseButtonDblClick and obj in (self.owner.main_image_scroll.viewport(), self.owner.main_image):
             self.owner.fit_main_image()
             return True
-        if etype == QEvent.MouseButtonPress and obj in (self.owner.main_image_scroll.viewport(), self.owner.main_image):
-            if event.button() == Qt.MouseButton.LeftButton:
-                self.dragging = True
-                self.last_pos = event.globalPosition().toPoint()
-                self.press_pos = event.globalPosition().toPoint()
-                self.owner.main_image_scroll.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
-                return True
+        if etype == QEvent.MouseButtonPress:
+            if self.owner.match_overlay.isVisible():
+                click_pos = event.globalPosition().toPoint()
+                overlay_pos = self.owner.match_overlay.mapToGlobal(self.owner.match_overlay.rect().topLeft())
+                overlay_rect = self.owner.match_overlay.rect()
+                overlay_rect.moveTopLeft(overlay_pos)
+                if not overlay_rect.contains(click_pos):
+                    self.owner.match_overlay.hide_overlay()
+            if obj in (self.owner.main_image_scroll.viewport(), self.owner.main_image):
+                if event.button() == Qt.MouseButton.LeftButton:
+                    self.dragging = True
+                    self.last_pos = event.globalPosition().toPoint()
+                    self.press_pos = event.globalPosition().toPoint()
+                    self.owner.main_image_scroll.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
+                    return True
         if etype == QEvent.MouseMove and obj in (self.owner.main_image_scroll.viewport(), self.owner.main_image):
             if self.dragging:
                 pos = event.globalPosition().toPoint()
@@ -313,20 +449,23 @@ class DropEventFilter(QObject):
                 self.dragging = False
                 self.owner.main_image_scroll.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
                 return True
-        if etype == QEvent.Resize and obj in (self.owner.main_image_scroll.viewport(), self.owner.thumbnail_scroll.viewport()):
+        if etype == QEvent.Resize and obj in (self.owner.main_image_scroll.viewport(), self.owner.thumbnail_scroll.viewport(), self.owner.main_drop_zone):
             self.owner.schedule_viewport_refresh()
         return False
 
 
 class ThumbnailButton(QToolButton):
-    def __init__(self, owner: "PhotoCullerApp", index: int, path: str, status: int):
+    def __init__(self, owner: "PhotoCullerApp", index: int, path: str, status: int, is_current: bool = False):
         super().__init__()
         self.owner = owner
         self.index = index
         self.path = path
-        self._hover_scale = 1.0
-        self._hover_anim = None
+        self._scale = HOVER_SCALE_FACTOR if is_current else 1.0
+        self._scale_anim = None
+        self._is_hovered = False
+        self._is_current = is_current
         self._thumb_pixmap = owner.load_thumbnail_pixmap(path)
+        self._is_pressed = False
         self.setProperty("thumbnail", True)
         self.setProperty("status", self._status_name(status))
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
@@ -336,7 +475,6 @@ class ThumbnailButton(QToolButton):
         self.setAutoRaise(False)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setMouseTracking(True)
-        self.clicked.connect(lambda: self.owner.go_to(index))
 
     def _calc_square_metrics(self):
         self.owner._calc_thumbnail_metrics()
@@ -344,38 +482,81 @@ class ThumbnailButton(QToolButton):
         self.thumbnail_icon_size = self.owner.thumbnail_icon_size
 
     def _status_name(self, status: int) -> str:
-        if status == 2:
-            return "current"
         if status == 1:
             return "pass"
         if status == -1:
             return "reject"
         return "normal"
 
-    def _set_hover_scale(self, value: float):
-        self._hover_scale = value
+    def _set_scale(self, value: float):
+        self._scale = value
         self.update()
 
-    hoverScale = Property(float, lambda self: self._hover_scale, _set_hover_scale)
+    scale = Property(float, lambda self: self._scale, _set_scale)
 
-    def enterEvent(self, event):
-        super().enterEvent(event)
-        self._animate_hover(HOVER_SCALE_FACTOR)
+    def _target_scale(self) -> float:
+        if self._is_current or self._is_hovered:
+            return HOVER_SCALE_FACTOR
+        return 1.0
 
-    def leaveEvent(self, event):
-        super().leaveEvent(event)
-        self._animate_hover(1.0)
-
-    def _animate_hover(self, target: float):
-        if self._hover_anim is not None:
-            self._hover_anim.stop()
-        anim = QPropertyAnimation(self, b"hoverScale", self)
+    def _animate_to_target(self):
+        target = self._target_scale()
+        if abs(self._scale - target) < 0.001:
+            return
+        if self._scale_anim is not None:
+            self._scale_anim.stop()
+        anim = QPropertyAnimation(self, b"scale", self)
         anim.setDuration(HOVER_ANIM_DURATION)
-        anim.setStartValue(self._hover_scale)
+        anim.setStartValue(self._scale)
         anim.setEndValue(target)
         anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         anim.start()
-        self._hover_anim = anim
+        self._scale_anim = anim
+
+    def set_current(self, is_current: bool):
+        if self._is_current == is_current:
+            return
+        self._is_current = is_current
+        if self._scale_anim is not None:
+            self._scale_anim.stop()
+        self._set_scale(self._target_scale())
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self._is_hovered = True
+        self._animate_to_target()
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self._is_hovered = False
+        self._animate_to_target()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._is_pressed = True
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._is_pressed:
+            self._is_pressed = False
+            if self.rect().contains(event.position().toPoint()):
+                self._on_click()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def contextMenuEvent(self, event):
+        self.owner.mark_reject_at(self.index)
+        event.accept()
+
+    def _on_click(self):
+        is_current = self.index == self.owner.current_idx
+        if is_current:
+            self.owner.mark_pass_at(self.index)
+        else:
+            self.owner.go_to(self.index)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -385,43 +566,63 @@ class ThumbnailButton(QToolButton):
         center_x = self.rect().width() / 2
         center_y = self.rect().height() / 2
         painter.translate(center_x, center_y)
-        painter.scale(self._hover_scale, self._hover_scale)
+        painter.scale(self._scale, self._scale)
         painter.translate(-center_x, -center_y)
 
         max_scale = HOVER_SCALE_FACTOR
         base_padding = int(self.rect().width() * (max_scale - 1) / 2) + 1
         top_padding = base_padding + 3
-        rect = self.rect().adjusted(base_padding, top_padding, -base_padding, -base_padding)
-        path = QPainterPath()
-        path.addRoundedRect(rect, 8, 8)
+        outer_rect = self.rect().adjusted(base_padding, top_padding, -base_padding, -base_padding)
+
+        inner_border_width = 2
+        status = self.property("status")
+        radius = 8
 
         bg = QColor("#111111")
-        if self.property("status") == "current":
-            bg = QColor("#222222")
-        painter.fillPath(path, bg)
-        painter.setClipPath(path)
+
+        inner_border_color = QColor("transparent")
+        if status == "pass":
+            inner_border_color = QColor("#4caf50")
+        elif status == "reject":
+            inner_border_color = QColor("#f44336")
+
+        outer_path = QPainterPath()
+        outer_path.addRoundedRect(outer_rect, radius, radius)
+        painter.fillPath(outer_path, bg)
+
+        if inner_border_color.alpha() > 0:
+            content_path = QPainterPath()
+            content_path.addRoundedRect(outer_rect, radius, radius)
+            painter.fillPath(content_path, inner_border_color)
+
+            image_rect = outer_rect.adjusted(
+                inner_border_width,
+                inner_border_width,
+                -inner_border_width,
+                -inner_border_width,
+            )
+            image_radius = max(0, radius - inner_border_width)
+            image_path = QPainterPath()
+            image_path.addRoundedRect(image_rect, image_radius, image_radius)
+            painter.fillPath(image_path, bg)
+        else:
+            image_rect = outer_rect
+            image_radius = radius
+            image_path = QPainterPath()
+            image_path.addRoundedRect(image_rect, image_radius, image_radius)
+
+        painter.setClipPath(image_path)
 
         if not self._thumb_pixmap.isNull():
             scaled = self._thumb_pixmap.scaled(
-                rect.width(),
-                rect.height(),
+                image_rect.width(),
+                image_rect.height(),
                 Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                 Qt.TransformationMode.SmoothTransformation,
             )
-            x = rect.x() + (rect.width() - scaled.width()) // 2
-            y = rect.y() + (rect.height() - scaled.height()) // 2
+            x = image_rect.x() + (image_rect.width() - scaled.width()) // 2
+            y = image_rect.y() + (image_rect.height() - scaled.height()) // 2
             painter.drawPixmap(x, y, scaled)
-
-        border = QColor("transparent")
-        if self.property("status") == "pass":
-            border = QColor("#4caf50")
-        elif self.property("status") == "reject":
-            border = QColor("#f44336")
-        elif self.property("status") == "current":
-            border = QColor("#00bcd4")
-        painter.setPen(QPen(border, 2))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRoundedRect(rect, 8, 8)
 
 
 class SummaryDialog(QDialog):
@@ -446,6 +647,225 @@ class SummaryDialog(QDialog):
         root.addWidget(buttons)
 
 
+class MatchOverlay(QWidget):
+    COLOR_MATCH = "#4caf50"
+    COLOR_MISSING_RAW = "#f44336"
+    COLOR_EXTRA_RAW = "#ff9800"
+    ROW_HEIGHT = 24
+    HORIZONTAL_GAP = 20
+    AUTO_HIDE_MS = 3000
+    WIDTH_RATIO = 0.22
+
+    def __init__(self, parent: QWidget, anchor_widget: QWidget | None = None):
+        super().__init__(parent)
+        self._anchor = anchor_widget
+        self._is_hovered = False
+        self._auto_hide_timer = QTimer(self)
+        self._auto_hide_timer.setSingleShot(True)
+        self._auto_hide_timer.timeout.connect(self._on_auto_hide_timeout)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.hide()
+
+        self.bg_frame = QFrame(self)
+        self.bg_frame.setObjectName("matchOverlayBg")
+        self.bg_frame.setStyleSheet("""
+            QFrame#matchOverlayBg {
+                background: rgba(30, 30, 30, 215);
+                border: 1px solid #444444;
+                border-radius: 8px;
+            }
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                width: 6px;
+                background: #1a1a1a;
+                margin: 0px;
+                border-radius: 3px;
+            }
+            QScrollBar::handle:vertical {
+                background: #444444;
+                border-radius: 3px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #555555;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+
+        bg_layout = QVBoxLayout(self.bg_frame)
+        bg_layout.setContentsMargins(14, 10, 14, 10)
+        bg_layout.setSpacing(6)
+
+        self.header_label = QLabel("文件匹配对照")
+        self.header_label.setStyleSheet("color: #ffb300; font-size: 13px; font-weight: bold;")
+        self.header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bg_layout.addWidget(self.header_label)
+
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        self.content = QWidget()
+        self.content.setStyleSheet("background: transparent;")
+        self.list_layout = QVBoxLayout(self.content)
+        self.list_layout.setContentsMargins(2, 2, 2, 2)
+        self.list_layout.setSpacing(1)
+
+        self.scroll.setWidget(self.content)
+        bg_layout.addWidget(self.scroll, 1)
+
+        self.setLayout(QVBoxLayout(self))
+        self.layout().setContentsMargins(0, 0, 0, 0)
+        self.layout().addWidget(self.bg_frame)
+
+        self.setMouseTracking(True)
+        self.bg_frame.setMouseTracking(True)
+        self.content.setMouseTracking(True)
+        self.scroll.viewport().setMouseTracking(True)
+
+    def set_data(self, jpg_files: list[str], raw_files: list[str]):
+        while self.list_layout.count():
+            item = self.list_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+        jpg_map = {os.path.splitext(f)[0].lower(): f for f in sorted(jpg_files)}
+        raw_map = {os.path.splitext(f)[0].lower(): f for f in sorted(raw_files)}
+
+        all_basenames = sorted(set(list(jpg_map.keys()) + list(raw_map.keys())))
+
+        for base in all_basenames:
+            jpg_name = jpg_map.get(base, "")
+            raw_name = raw_map.get(base, "")
+
+            row = QWidget()
+            row.setMouseTracking(True)
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(self.HORIZONTAL_GAP)
+            row.setFixedHeight(self.ROW_HEIGHT)
+
+            left_label = QLabel(jpg_name if jpg_name else "")
+            left_label.setFixedHeight(self.ROW_HEIGHT)
+            left_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
+            if not jpg_name:
+                left_color = "transparent"
+            elif raw_name:
+                left_color = self.COLOR_MATCH
+            else:
+                left_color = self.COLOR_MISSING_RAW
+            left_label.setStyleSheet(f"color: {left_color}; font-size: 12px; background: transparent;")
+
+            arrow = QLabel("→")
+            arrow.setFixedHeight(self.ROW_HEIGHT)
+            arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            arrow_color = self.COLOR_MATCH if (jpg_name and raw_name) else "#555555"
+            arrow.setStyleSheet(f"color: {arrow_color}; font-size: 13px; font-weight: bold; background: transparent;")
+
+            right_label = QLabel(raw_name if raw_name else "")
+            right_label.setFixedHeight(self.ROW_HEIGHT)
+            right_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
+            if not raw_name:
+                right_color = "transparent"
+            elif jpg_name:
+                right_color = self.COLOR_MATCH
+            else:
+                right_color = self.COLOR_EXTRA_RAW
+            right_label.setStyleSheet(f"color: {right_color}; font-size: 12px; background: transparent;")
+
+            row_layout.addWidget(left_label, 1)
+            row_layout.addWidget(arrow, 0)
+            row_layout.addWidget(right_label, 1)
+
+            self.list_layout.addWidget(row)
+
+        self.list_layout.addStretch(1)
+
+    def show_overlay(self, duration_ms: int | None = None):
+        self.show()
+        self.raise_()
+        self._update_position()
+        if duration_ms is not None:
+            self._auto_hide_timer.start(duration_ms)
+        else:
+            self._auto_hide_timer.stop()
+
+    def hide_overlay(self):
+        self._auto_hide_timer.stop()
+        self.hide()
+
+    def toggle_overlay(self):
+        if self.isVisible():
+            self.hide_overlay()
+        else:
+            self.show_overlay(duration_ms=None)
+
+    def _on_auto_hide_timeout(self):
+        if not self._is_hovered:
+            self.hide_overlay()
+
+    def enterEvent(self, event):
+        self._is_hovered = True
+        self._auto_hide_timer.stop()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._is_hovered = False
+        if self._auto_hide_timer.isActive():
+            pass
+        elif not self._pinned:
+            self._auto_hide_timer.start(500)
+        super().leaveEvent(event)
+
+    @property
+    def _pinned(self) -> bool:
+        return not self._auto_hide_timer.isActive() and self.isVisible()
+
+    def _update_position(self):
+        parent = self.parentWidget()
+        if parent is None:
+            return
+
+        border_radius = 8
+
+        if self._anchor is not None:
+            anchor_rect = self._anchor.geometry()
+            anchor_pos = self._anchor.mapTo(parent, anchor_rect.topLeft())
+            area_x = anchor_pos.x()
+            area_top = anchor_pos.y()
+            area_w = anchor_rect.width()
+            area_bottom = anchor_pos.y() + anchor_rect.height()
+        else:
+            area_x = 0
+            area_top = 0
+            area_w = parent.width()
+            area_bottom = parent.height()
+
+        top_y = area_top + border_radius
+
+        w = max(320, int(area_w * self.WIDTH_RATIO))
+
+        max_h = max(120, area_bottom - top_y - border_radius)
+        h = max_h
+
+        x = area_x + area_w - w - border_radius
+        y = top_y
+
+        self.setGeometry(x, y, w, h)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.bg_frame.setGeometry(0, 0, self.width(), self.height())
+
+
 class PhotoCullerApp(QObject):
     def __init__(self):
         super().__init__()
@@ -468,11 +888,6 @@ class PhotoCullerApp(QObject):
         self._max_cache_size = MAX_CACHE_SIZE
         self._thumb_buttons: dict[int, ThumbnailButton] = {}
         self._viewport_refresh_timer = QTimer(self)
-        self._full_preview_mode = False
-        self._full_preview_container = None
-        self._full_preview_left = None
-        self._full_preview_center = None
-        self._full_preview_right = None
         self._viewport_refresh_timer.setSingleShot(True)
         self._viewport_refresh_timer.setInterval(VIEWPORT_REFRESH_INTERVAL)
         self._viewport_refresh_timer.timeout.connect(self.refresh_visible_views)
@@ -545,9 +960,15 @@ class PhotoCullerApp(QObject):
         self.thumbnail_layout.setSpacing(THUMBNAIL_LAYOUT_SPACING)
         self.thumbnail_layout.setContentsMargins(*THUMBNAIL_LAYOUT_MARGINS)
 
+        self.match_overlay = MatchOverlay(
+            self.window.findChild(QWidget, "centralwidget"),
+            anchor_widget=self.main_drop_zone
+        )
+        self.match_overlay.hide()
+
     def install_filters(self):
         self.filter = DropEventFilter(self)
-        for widget in [self.zone_jpg, self.zone_raw, self.zone_dest, self.main_drop_zone, self.main_image, self.main_placeholder]:
+        for widget in [self.zone_jpg, self.zone_raw, self.zone_dest, self.main_drop_zone, self.main_image, self.main_placeholder, self.info_label, self.path_bar, self.thumbnail_scroll.viewport()]:
             widget.setAcceptDrops(True)
             widget.installEventFilter(self.filter)
         self.main_image_scroll.viewport().setAcceptDrops(True)
@@ -563,7 +984,8 @@ class PhotoCullerApp(QObject):
 
     def on_splitter_moved(self, pos, index):
         self.schedule_viewport_refresh()
-        self.check_full_preview_mode()
+        if self.match_overlay.isVisible():
+            self.match_overlay._update_position()
 
     def setup_shortcuts(self):
         shortcuts = [
@@ -575,6 +997,7 @@ class PhotoCullerApp(QObject):
             (QKeySequence(Qt.Key.Key_Left), self.go_prev),
             (QKeySequence(Qt.Key.Key_Right), self.go_next),
             (QKeySequence("Ctrl+Z"), self.undo),
+            (QKeySequence(Qt.Key.Key_Tab), self.toggle_match_overlay),
         ]
         self.shortcuts = []
         for sequence, handler in shortcuts:
@@ -672,18 +1095,24 @@ class PhotoCullerApp(QObject):
 
     def apply_jpg_dir(self, directory: str):
         directory = directory if os.path.isdir(directory) else os.path.dirname(directory)
+        had_raw_before = bool(self.file_service.raw_dir)
         if self.file_service.set_jpg_dir(directory):
             self.lbl_jpg_path.setText(os.path.basename(directory))
             self.refresh_state()
+            if had_raw_before:
+                QTimer.singleShot(100, self.show_match_info)
         else:
             QMessageBox.warning(self.window, "提示", "路径无效，请检查后重试")
 
     def apply_raw_dir(self, directory: str):
         directory = directory if os.path.isdir(directory) else os.path.dirname(directory)
+        had_jpg_before = bool(self.file_service.jpg_dir)
         if self.file_service.set_raw_dir(directory):
             self.lbl_raw_path.setText(os.path.basename(directory))
             self.raw_ext = self.file_service.raw_ext
             self.lbl_raw_ext.setText(self.raw_ext)
+            if had_jpg_before:
+                QTimer.singleShot(100, self.show_match_info)
         else:
             QMessageBox.warning(self.window, "提示", "路径无效，请检查后重试")
 
@@ -711,10 +1140,7 @@ class PhotoCullerApp(QObject):
 
     def update_view(self):
         self.update_info_bar()
-        if self._full_preview_mode:
-            self.refresh_full_preview()
-        else:
-            self.refresh_main_image()
+        self.refresh_main_image()
         self.refresh_thumbnails()
 
     def update_info_bar(self):
@@ -766,6 +1192,8 @@ class PhotoCullerApp(QObject):
 
     def refresh_visible_views(self):
         self._calc_thumbnail_metrics()
+        if self.match_overlay.isVisible():
+            self.match_overlay._update_position()
         if self.current_main_pixmap.isNull():
             self.refresh_thumbnails()
             return
@@ -891,8 +1319,9 @@ class PhotoCullerApp(QObject):
             self._thumb_buttons.clear()
 
             for idx, filename in enumerate(self.image_files):
-                status = 2 if idx == self.current_idx else self.states.get(filename, 0)
-                button = ThumbnailButton(self, idx, filename, status)
+                is_current = idx == self.current_idx
+                status = self.states.get(filename, 0)
+                button = ThumbnailButton(self, idx, filename, status, is_current)
                 button.setFixedSize(self.thumbnail_button_size)
                 button.setIconSize(self.thumbnail_icon_size)
                 self.thumbnail_layout.addWidget(button)
@@ -908,12 +1337,12 @@ class PhotoCullerApp(QObject):
                     button.setIconSize(self.thumbnail_icon_size)
 
                     filename = self.image_files[idx]
-                    status = 2 if idx == self.current_idx else self.states.get(filename, 0)
+                    is_current = idx == self.current_idx
+                    status = self.states.get(filename, 0)
                     new_status_name = button._status_name(status)
                     if button.property("status") != new_status_name:
                         button.setProperty("status", new_status_name)
-                        button.style().unpolish(button)
-                        button.style().polish(button)
+                    button.set_current(is_current)
                     button.update()
 
         QTimer.singleShot(0, self.scroll_current_thumbnail_into_view)
@@ -930,12 +1359,33 @@ class PhotoCullerApp(QObject):
             self.states = self.file_service.states
             self.update_view()
 
+    def mark_pass_at(self, idx):
+        result = self.file_service.mark_pass_at(idx)
+        if result:
+            self.states = self.file_service.states
+            self.update_info_bar()
+            self.refresh_thumbnails()
+
     def mark_reject(self):
         result = self.file_service.mark_reject()
         if result:
             self.current_idx = self.file_service.current_idx
             self.states = self.file_service.states
             self.update_view()
+
+    def mark_reject_at(self, idx):
+        result = self.file_service.mark_reject_at(idx)
+        if result:
+            self.states = self.file_service.states
+            self.update_info_bar()
+            self.refresh_thumbnails()
+
+    def reset_state_at(self, idx):
+        result = self.file_service.reset_state_at(idx)
+        if result:
+            self.states = self.file_service.states
+            self.update_info_bar()
+            self.refresh_thumbnails()
 
     def undo(self):
         result = self.file_service.undo()
@@ -980,31 +1430,111 @@ class PhotoCullerApp(QObject):
             self.current_idx = self.file_service.current_idx
             self.update_view()
 
-    def show_confirm_dialog(self):
-        if not self.file_service.raw_dir or not self.file_service.dest_dir:
-            QMessageBox.warning(self.window, "提示", "尚未配置【RAW目录】或【导出目录】！请在界面最上方完成选择。")
+    def show_match_info(self):
+        if not self.file_service.jpg_dir or not self.file_service.raw_dir:
             return
-        text = f"全部筛选完毕！即将匹配后辍为 [{self.raw_ext}] 的原图。是否开始批量复制到导出目录？"
+        try:
+            match_info = self.file_service.check_match()
+        except Exception as e:
+            QMessageBox.warning(self.window, "匹配检查失败", str(e))
+            return
+
+        if not match_info.get("can_check"):
+            return
+
+        missing_raw = match_info["missing_raw"]
+        if missing_raw:
+            self.file_service.write_missing_report(missing_raw)
+
+        try:
+            raw_files_in_dir = os.listdir(self.file_service.raw_dir)
+            raw_files = sorted([f for f in raw_files_in_dir if os.path.splitext(f)[1].lower() in FileService.RAW_EXTENSIONS_LOWER])
+        except Exception:
+            raw_files = []
+
+        self.match_overlay.set_data(self.image_files, raw_files)
+        self.match_overlay.show_overlay(duration_ms=3000)
+
+    def toggle_match_overlay(self):
+        if not self.file_service.jpg_dir or not self.file_service.raw_dir:
+            return
+        if self.match_overlay.isVisible():
+            self.match_overlay.hide_overlay()
+        else:
+            try:
+                raw_files_in_dir = os.listdir(self.file_service.raw_dir)
+                raw_files = sorted([f for f in raw_files_in_dir if os.path.splitext(f)[1].lower() in FileService.RAW_EXTENSIONS_LOWER])
+            except Exception:
+                raw_files = []
+            self.match_overlay.set_data(self.image_files, raw_files)
+            self.match_overlay.show_overlay(duration_ms=None)
+
+    def show_confirm_dialog(self):
+        if not self.file_service.dest_dir:
+            QMessageBox.warning(self.window, "提示", "尚未配置【导出目录】！请在界面最上方完成选择。")
+            return
+        if not self.file_service.jpg_dir:
+            QMessageBox.warning(self.window, "提示", "尚未配置【JPG目录】！请在界面最上方完成选择。")
+            return
+
+        has_raw = bool(self.file_service.raw_dir)
+
+        if has_raw:
+            match_info = self.file_service.check_match()
+            missing_raw = match_info.get("missing_raw", [])
+            if missing_raw:
+                ret = QMessageBox.warning(
+                    self.window,
+                    "存在缺失RAW文件",
+                    f"检测到有 {len(missing_raw)} 张JPG在RAW目录中找不到对应的RAW文件！\n\n"
+                    f"这些照片将无法导出对应的RAW文件。\n"
+                    f"已在RAW目录生成【缺失RAW文件列表.txt】。\n\n"
+                    f"是否继续导出？（仅导出能匹配到的RAW文件）",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if ret != QMessageBox.StandardButton.Yes:
+                    return
+
+            text = f"全部筛选完毕！即将匹配后缀为 [{self.raw_ext}] 的RAW原图。是否开始批量复制到导出目录？"
+        else:
+            text = "全部筛选完毕！即将导出选中的JPG照片到导出目录。是否开始复制？"
+
         ret = QMessageBox.question(self.window, "筛选完毕", text, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if ret == QMessageBox.StandardButton.Yes:
             self.execute_copy()
 
     def execute_copy(self):
+        has_raw = bool(self.file_service.raw_dir)
         try:
-            result = self.file_service.copy_raw_files()
+            if has_raw:
+                result = self.file_service.copy_raw_files(strict=True)
+            else:
+                result = self.file_service.copy_jpg_files()
         except Exception as exc:
             QMessageBox.critical(self.window, "复制失败", str(exc))
             return
 
         if result.get("success"):
             success_count = result.get("success_count", 0)
-            missing_files = result.get("missing_files", []) or []
-            message = f"复制完成！成功复制 RAW 文件：{success_count} 张"
-            details = []
-            if missing_files:
-                message += f"\n缺失/失败文件数量：{len(missing_files)} 张"
-                details = missing_files
-            dialog = SummaryDialog(self.window, "复制汇总", message, details)
+            mode = result.get("mode", "raw")
+
+            if mode == "raw":
+                missing_files = result.get("missing_files", []) or []
+                message = f"复制完成！成功复制 RAW 文件：{success_count} 张"
+                details = []
+                if missing_files:
+                    message += f"\n缺失/失败文件数量：{len(missing_files)} 张"
+                    message += "\n已在RAW目录生成【缺失RAW文件列表.txt】"
+                    details = missing_files
+            else:
+                failed_files = result.get("failed_files", []) or []
+                message = f"导出完成！成功复制 JPG 文件：{success_count} 张"
+                details = []
+                if failed_files:
+                    message += f"\n失败文件数量：{len(failed_files)} 张"
+                    details = failed_files
+
+            dialog = SummaryDialog(self.window, "导出汇总", message, details if details else None)
             dialog.exec()
             self.refresh_state()
         else:
@@ -1014,137 +1544,13 @@ class PhotoCullerApp(QObject):
         max_height = THUMBNAIL_MAX_SIZE + THUMBNAIL_TOP_MARGIN + THUMBNAIL_BOTTOM_MARGIN + THUMBNAIL_HOVER_PADDING
         self.thumbnail_scroll.setMaximumHeight(max_height)
 
-    def check_full_preview_mode(self):
-        if not self.image_files:
-            return
-
-        normal_max_height = THUMBNAIL_MAX_SIZE + THUMBNAIL_TOP_MARGIN + THUMBNAIL_BOTTOM_MARGIN + THUMBNAIL_HOVER_PADDING
-        full_trigger_height = normal_max_height * 2
-
-        sizes = self.main_splitter.sizes()
-        thumb_height = sizes[1] if len(sizes) > 1 else 0
-
-        if thumb_height > full_trigger_height and not self._full_preview_mode:
-            self.enter_full_preview_mode()
-        elif thumb_height < normal_max_height and self._full_preview_mode:
-            self.exit_full_preview_mode()
-
-    def enter_full_preview_mode(self):
-        self._full_preview_mode = True
-
-        self.main_image_scroll.hide()
-        self.main_placeholder.hide()
-
-        self._full_preview_container = QWidget(self.main_drop_zone)
-        self._full_preview_container.setObjectName("fullPreviewContainer")
-        from PySide6.QtWidgets import QHBoxLayout
-        layout = QHBoxLayout(self._full_preview_container)
-        layout.setSpacing(0)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self._full_preview_left = QLabel(self._full_preview_container)
-        self._full_preview_left.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._full_preview_left.setStyleSheet("background: #000000;")
-
-        self._full_preview_center = QLabel(self._full_preview_container)
-        self._full_preview_center.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._full_preview_center.setStyleSheet("background: #000000;")
-
-        self._full_preview_right = QLabel(self._full_preview_container)
-        self._full_preview_right.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._full_preview_right.setStyleSheet("background: #000000;")
-
-        layout.addWidget(self._full_preview_left)
-        layout.addWidget(self._full_preview_center)
-        layout.addWidget(self._full_preview_right)
-
-        self._full_preview_left.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._full_preview_center.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._full_preview_right.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-        drop_layout = self.main_drop_zone.layout()
-        drop_layout.addWidget(self._full_preview_container, 0, 0)
-        self._full_preview_container.show()
-
-        self.thumbnail_scroll.setMaximumHeight(16777215)
-
-        self.refresh_full_preview()
-
-    def exit_full_preview_mode(self):
-        self._full_preview_mode = False
-
-        if self._full_preview_container:
-            self._full_preview_container.deleteLater()
-            self._full_preview_container = None
-            self._full_preview_left = None
-            self._full_preview_center = None
-            self._full_preview_right = None
-
-        self.update_thumbnail_max_height()
-
-        if self.current_main_pixmap.isNull():
-            self.main_placeholder.show()
-        else:
-            self.main_image_scroll.show()
-
-    def refresh_full_preview(self):
-        if not self._full_preview_mode or not self.image_files:
-            return
-
-        container_size = self._full_preview_container.size()
-        if container_size.width() <= 0 or container_size.height() <= 0:
-            return
-
-        center_width = container_size.width() // 2
-        side_width = (container_size.width() - center_width) // 2
-        height = container_size.height()
-
-        self._update_full_preview_label(self._full_preview_left, self.current_idx - 1, side_width, height, True)
-        self._update_full_preview_label(self._full_preview_center, self.current_idx, center_width, height, False)
-        self._update_full_preview_label(self._full_preview_right, self.current_idx + 1, side_width, height, False)
-
-    def _update_full_preview_label(self, label, idx, width, height, is_left):
-        if idx < 0 or idx >= len(self.image_files):
-            label.clear()
-            label.setText("")
-            return
-
-        filename = self.image_files[idx]
-        path = str(Path(self.file_service.jpg_dir) / filename)
-        pixmap = self._load_pixmap(path)
-
-        if pixmap.isNull():
-            label.clear()
-            label.setText("")
-            return
-
-        scale_factor = min(width / pixmap.width(), height / pixmap.height())
-        scaled_height = int(pixmap.height() * scale_factor)
-        scaled_width = int(pixmap.width() * scale_factor)
-
-        scaled = pixmap.scaled(scaled_width, scaled_height, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-
-        if scaled_width > width:
-            if is_left:
-                source_rect = QRect(scaled_width - width, 0, width, scaled_height)
-            else:
-                source_rect = QRect(0, 0, width, scaled_height)
-            clipped = scaled.copy(source_rect)
-            label.setPixmap(clipped)
-        else:
-            label.setPixmap(scaled)
-
-        status = self.states.get(filename, 0)
-        border_color = "#00bcd4" if status == 2 else "#4caf50" if status == 1 else "#f44336" if status == -1 else "#333333"
-        label.setStyleSheet(f"background: #000000; border: 3px solid {border_color};")
-
     def run(self):
         self.window.show()
         original_resize = self.window.resizeEvent
         def custom_resize(event):
             self.update_thumbnail_max_height()
-            if self._full_preview_mode:
-                self.refresh_full_preview()
+            if self.match_overlay.isVisible():
+                self.match_overlay._update_position()
             original_resize(event)
         self.window.resizeEvent = custom_resize
         return self.app.exec()
