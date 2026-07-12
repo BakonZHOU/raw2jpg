@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>相机照片极速筛选工具 v2.2</string>
+   <string>相机照片极速筛选工具 v3.0</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="rootLayout">

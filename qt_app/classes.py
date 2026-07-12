@@ -389,60 +389,6 @@ class DropEventFilter(QObject):
         self.dragging = False
         self.last_pos = QPoint()
         self.press_pos = QPoint()
-        self._hover_thumb_idx = -1
-        self._hover_timer = QTimer(self)
-        self._hover_timer.setInterval(16)
-        self._hover_timer.timeout.connect(self._check_thumb_hover)
-
-    def start_thumb_hover_tracking(self):
-        self._hover_timer.start()
-
-    def stop_thumb_hover_tracking(self):
-        self._hover_timer.stop()
-        self._clear_thumb_hover()
-
-    def _check_thumb_hover(self):
-        scroll = self.owner.thumbnail_scroll
-        global_pos = QCursor.pos()
-        local_pos = scroll.mapFromGlobal(global_pos)
-        viewport = scroll.viewport()
-
-        if not viewport.rect().contains(local_pos):
-            self._clear_thumb_hover()
-            return
-
-        content_pos = scroll.widget().mapFromGlobal(global_pos)
-        content = scroll.widget()
-        child = content.childAt(content_pos)
-        target_idx = -1
-        if child is not None:
-            btn = child
-            while btn is not None and not hasattr(btn, 'index'):
-                btn = btn.parent()
-            if btn is not None and hasattr(btn, 'index'):
-                target_idx = btn.index
-
-        if target_idx == self._hover_thumb_idx:
-            return
-
-        if self._hover_thumb_idx != -1:
-            old_btn = self.owner._thumb_buttons.get(self._hover_thumb_idx)
-            if old_btn is not None:
-                old_btn.set_hovered(False)
-
-        self._hover_thumb_idx = target_idx
-
-        if target_idx != -1:
-            new_btn = self.owner._thumb_buttons.get(target_idx)
-            if new_btn is not None:
-                new_btn.set_hovered(True)
-
-    def _clear_thumb_hover(self):
-        if self._hover_thumb_idx != -1:
-            btn = self.owner._thumb_buttons.get(self._hover_thumb_idx)
-            if btn is not None:
-                btn.set_hovered(False)
-            self._hover_thumb_idx = -1
 
     def eventFilter(self, obj, event):
         etype = event.type()
@@ -460,6 +406,15 @@ class DropEventFilter(QObject):
             self.owner.handle_drop(obj, event.mimeData())
             event.acceptProposedAction()
             return True
+        if etype == QEvent.Leave and obj == self.owner.thumbnail_content:
+            for btn in self.owner._thumb_buttons.values():
+                if btn._is_hovered:
+                    global_pos = QCursor.pos()
+                    local_pos = btn.mapFromGlobal(global_pos)
+                    if not btn.rect().contains(local_pos):
+                        btn._is_hovered = False
+                        btn._animate_to_target()
+            return False
         if etype == QEvent.Wheel and obj in (self.owner.main_image_scroll.viewport(), self.owner.main_image):
             modifiers = event.modifiers()
             if modifiers & Qt.KeyboardModifier.ControlModifier:
@@ -508,6 +463,30 @@ class DropEventFilter(QObject):
         return False
 
 
+class ThumbnailProxy(QWidget):
+    def __init__(self, button, parent=None):
+        super().__init__(parent)
+        self.button = button
+        self.button.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+    def enterEvent(self, event):
+        self.raise_()
+        if not self.button._is_hovered:
+            self.button._is_hovered = True
+            self.button._animate_to_target()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if self.button._is_hovered:
+            self.button._is_hovered = False
+            self.button._animate_to_target()
+        super().leaveEvent(event)
+
+
 class ThumbnailButton(QToolButton):
     def __init__(self, owner: "PhotoCullerApp", index: int, path: str, status: int, is_current: bool = False):
         super().__init__()
@@ -528,7 +507,6 @@ class ThumbnailButton(QToolButton):
         self.setIconSize(self.thumbnail_icon_size)
         self.setAutoRaise(False)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.setMouseTracking(True)
 
     def _calc_square_metrics(self):
         self.owner._calc_thumbnail_metrics()
@@ -574,12 +552,6 @@ class ThumbnailButton(QToolButton):
         if self._scale_anim is not None:
             self._scale_anim.stop()
         self._set_scale(self._target_scale())
-
-    def set_hovered(self, is_hovered: bool):
-        if self._is_hovered == is_hovered:
-            return
-        self._is_hovered = is_hovered
-        self._animate_to_target()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -1037,12 +1009,11 @@ class PhotoCullerApp(QObject):
 
     def install_filters(self):
         self.filter = DropEventFilter(self)
-        for widget in [self.zone_jpg, self.zone_raw, self.zone_dest, self.main_drop_zone, self.main_image, self.main_placeholder, self.info_label, self.path_bar, self.thumbnail_scroll.viewport()]:
+        for widget in [self.zone_jpg, self.zone_raw, self.zone_dest, self.main_drop_zone, self.main_image, self.main_placeholder, self.info_label, self.path_bar, self.thumbnail_scroll.viewport(), self.thumbnail_content]:
             widget.setAcceptDrops(True)
             widget.installEventFilter(self.filter)
         self.main_image_scroll.viewport().setAcceptDrops(True)
         self.main_image_scroll.viewport().installEventFilter(self.filter)
-        self.filter.start_thumb_hover_tracking()
 
     def bind_events(self):
         self.btn_select_jpg.clicked.connect(self.select_jpg_dir)
@@ -1394,7 +1365,9 @@ class PhotoCullerApp(QObject):
                 button = ThumbnailButton(self, idx, filename, status, is_current)
                 button.setFixedSize(self.thumbnail_button_size)
                 button.setIconSize(self.thumbnail_icon_size)
-                self.thumbnail_layout.addWidget(button)
+                proxy = ThumbnailProxy(button)
+                proxy.setFixedSize(self.thumbnail_button_size)
+                self.thumbnail_layout.addWidget(proxy)
                 self._thumb_buttons[idx] = button
 
             self.thumbnail_layout.addItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
@@ -1420,7 +1393,11 @@ class PhotoCullerApp(QObject):
     def scroll_current_thumbnail_into_view(self):
         current_button = self._thumb_buttons.get(self.current_idx)
         if current_button is not None:
-            self.thumbnail_scroll.ensureWidgetVisible(current_button)
+            proxy = current_button.parent()
+            if proxy is not None:
+                self.thumbnail_scroll.ensureWidgetVisible(proxy)
+            else:
+                self.thumbnail_scroll.ensureWidgetVisible(current_button)
 
     def mark_pass(self):
         result = self.file_service.mark_pass()
